@@ -1,0 +1,11 @@
+{
+  "merchant_id": "wildberries",
+  "name": "Wildberries",
+  "tier_default": 1,
+  "cart_url": "https://www.wildberries.ru/lk/basket",
+  "add_to_cart_selector": null,
+  "cart_page_url": "https://www.wildberries.ru/lk/basket",
+  "promo_input_selector": "input[data-link*='promoCode'], input[placeholder*='промокод' i]",
+  "promo_apply_selector": "button[data-link*='applyPromo'], button:has-text('Применить')",
+  "notes": "WB требует залогиненного юзера для открытия корзины. В headless ставим тестовый аккаунт через storageState."
+}

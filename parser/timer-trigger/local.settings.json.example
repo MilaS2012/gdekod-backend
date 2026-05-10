@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_EXTENSION_VERSION": "~4",
+
+    "YANDEX_API_URL": "https://api.gde-code.ru",
+    "PARSER_SECRET_KEY": "REPLACE_WITH_REAL_SECRET",
+
+    "BATCH_SIZE": "10",
+    "MAX_CONCURRENCY": "3"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "gdekod-parser",
+  "version": "1.0.0",
+  "description": "ГдеКод — парсер промокодов на Playwright + Azure",
+  "main": "scheduler.js",
+  "scripts": {
+    "tier1": "node scheduler.js --tier=1",
+    "tier2": "node scheduler.js --tier=2",
+    "tier3": "node scheduler.js --tier=3",
+    "urgent": "node scheduler.js --urgent",
+    "test:single": "node test/single-check.js",
+    "install:browsers": "playwright install chromium --with-deps"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "playwright": "^1.45.0"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "author": "ООО ЭЛУССО",
+  "license": "UNLICENSED",
+  "private": true
+}

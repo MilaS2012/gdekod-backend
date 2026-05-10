@@ -1,0 +1,11 @@
+{
+  "merchant_id": "mvideo",
+  "name": "М.Видео",
+  "tier_default": 1,
+  "cart_url": "https://www.mvideo.ru/cart",
+  "add_to_cart_selector": null,
+  "cart_page_url": "https://www.mvideo.ru/cart",
+  "promo_input_selector": "input[placeholder*='промокод' i]",
+  "promo_apply_selector": "button:has-text('Применить')",
+  "notes": "Корзина доступна без логина. Промокод вводится в шаге оформления."
+}

@@ -1,0 +1,11 @@
+{
+  "merchant_id": "ozon",
+  "name": "Ozon",
+  "tier_default": 1,
+  "cart_url": "https://www.ozon.ru/cart",
+  "add_to_cart_selector": null,
+  "cart_page_url": "https://www.ozon.ru/cart",
+  "promo_input_selector": "input[placeholder*='промокод' i], input[name*='promo' i]",
+  "promo_apply_selector": "button:has-text('Применить'), button[data-widget*='promoCode']",
+  "notes": "Ozon агрессивно детектит ботов. Нужен real User-Agent + storageState с куками."
+}
