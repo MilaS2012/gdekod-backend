@@ -1,95 +1,101 @@
 # gdekod-backend
 
-Backend API для сервиса **ГдеКод** (`gde-code.ru`) — каталог промокодов российских интернет-магазинов.
+Backend для сервиса **ГдеКод** (`gde-code.ru`) — каталог промокодов российских интернет-магазинов. Целевая инфраструктура — **Yandex Cloud** (Cloud Functions + Managed PostgreSQL + Object Storage + Container Registry).
 
-Бекенд построен на **Yandex Cloud Functions** (serverless, аналог AWS Lambda) с подключением к **Yandex Managed PostgreSQL**. Каждый эндпоинт — отдельная функция; маршрутизация — через **Yandex API Gateway**.
+Репозиторий — **монорепо** из нескольких независимо деплоящихся под-пакетов: каждый со своим `package.json`, своими зависимостями, своим CI-флоу.
 
-## Структура проекта
+## Структура
 
 ```
 .
-├── README.md                     ← этот файл
-├── package.json                  ← зависимости + npm-скрипты
-├── .env.example                  ← шаблон env-переменных (без секретов)
-├── src/
-│   ├── config.js                 ← чтение env с проверкой обязательных переменных
-│   ├── handlers/
-│   │   ├── public/               ← публичный API без авторизации
-│   │   │   ├── merchants.js      ← GET /merchants, GET /merchants/{id}
-│   │   │   └── coupons.js        ← GET /coupons, GET /coupons/{id}
-│   │   └── private/              ← приватный API (план — см. private/README.md)
-│   ├── db/
-│   │   ├── client.js             ← PG pool, переиспользуется между warm-вызовами
-│   │   └── queries/
-│   │       ├── merchants.js
-│   │       └── coupons.js
-│   └── utils/
-│       ├── response.js           ← хелперы JSON-ответов (ok, notFound, serverError…)
-│       └── cors.js               ← CORS-заголовки под gde-code.ru
-└── tests/                        ← план тестов на Vitest (см. tests/README.md)
+├── README.md                ← этот файл
+├── package.json             ← мета-пакет: прокси-скрипты к под-пакетам
+│
+├── public-api/              ← Этап 5: публичный read-only API
+│   ├── handlers/            ← merchants-list, merchant-detail,
+│   │                          coupons-list, coupon-detail, health
+│   ├── lib/                 ← db (pg pool), cors, mask-code, response
+│   ├── test/                ← node:test, моки PG
+│   └── README.md            ← endpoints, JSON-примеры, принципы
+│
+├── parser/                  ← Этап 8: Playwright-парсер с tiered scheduling
+│   ├── checker.js           ← проверка одного промокода
+│   ├── scheduler.js         ← раскладка проверок по уровням свежести
+│   ├── queue.js             ← очередь задач
+│   ├── reporter.js          ← запись результатов в БД
+│   ├── merchants/           ← селекторы под конкретные магазины
+│   ├── timer-trigger/       ← entrypoint для Yandex Cloud Functions
+│   ├── test/                ← одиночная проверка для отладки
+│   ├── Dockerfile           ← для Container Registry / Cloud Run-аналога
+│   └── README.md
+│
+└── src/handlers/private/    ← Этап 6: приватный API (план, README.md)
+                                После реализации сюда переедут
+                                auth/, subscription/, account/, support/.
 ```
 
-## Endpoints (публичный API)
+> Схемы PostgreSQL пока живут в `gdekod-frontend/database/postgresql/` (исторически — там был первый deploy-набор скриптов). При следующей итерации перенесём их в этот репо как `database/`, ближе к коду, который их использует.
 
-| Метод | Путь | Что возвращает |
-|---|---|---|
-| `GET` | `/merchants` | Список активных магазинов. Опц. `?category=eda`. |
-| `GET` | `/merchants/{id}` | Один магазин по id. 404, если нет или скрыт. |
-| `GET` | `/coupons` | Список активных промокодов. Опц. `?merchant_id=N`. |
-| `GET` | `/coupons/{id}` | Один промокод. 404, если не active/удалён. |
+## Под-пакеты
 
-Только активные сущности (`merchants.is_active = true`, `coupons.status = 'active'`) — `expired`, `removed`, `needs_manual_check` скрыты.
+| Папка | Что делает | Состояние | Тесты |
+|---|---|---|---|
+| `public-api/` | GET /api/merchants(/{id}), /api/coupons(/{id}), /health | ✓ готово | 21 / 21 (`node:test`) |
+| `parser/` | Periodic-проверка промокодов в магазинах через Playwright + Tiered Scheduling | ✓ готово | smoke-test в `test/single-check.js` |
+| `src/handlers/private/` | Auth, subscription, account, support | план (README с дизайном) | — |
 
-## Принципы реализации handler'ов
+## Скрипты в корне
 
-1. **Стандартизованный ответ** — все handler'ы возвращают через `src/utils/response.js` (ok / badRequest / notFound / methodNotAllowed / serverError / corsPreflightResponse). Никаких ручных `{ statusCode, body }` в коде handler'ов.
-2. **CORS** — заголовки добавляются автоматически через `src/utils/cors.js`. Whitelist: `https://gde-code.ru`, `https://www.gde-code.ru`. Origin вне списка → fallback `https://gde-code.ru` (браузер всё равно заблокирует ответ).
-3. **Переиспользование PG pool** — `src/db/client.js` создаёт `pg.Pool` один раз на cold-start через module-level singleton. Все warm-инвокации того же контейнера используют тот же pool.
-4. **Логирование ошибок** — только `console.error('[handler-name]', { requestId, err })`. stdout/stderr Cloud Functions автоматически уходят в **Yandex Cloud Logging** — отдельной библиотеки логирования не подключаем.
-5. **Никогда не отдаём stack trace клиенту.** При ошибке клиент получает `{ error: "Internal server error", requestId }` — id для саппорта, ничего больше. Подробности — только в логе.
-
-## Переменные окружения
-
-См. `.env.example`. Минимум:
-
-```
-YANDEX_PG_HOST       FQDN мастера кластера (rc1a-xxxxxxxx.mdb.yandexcloud.net)
-YANDEX_PG_PORT       6432 (pgbouncer — обязательно для serverless)
-YANDEX_PG_USER       пользователь БД
-YANDEX_PG_PASSWORD   пароль БД (в проде — из Lockbox, не в .env)
-YANDEX_PG_DATABASE   имя БД (gdekod)
-YANDEX_PG_CA_CERT    CA-сертификат YC, PEM-содержимое одной переменной
-```
-
-В Yandex Cloud Functions реальные значения подаются через **Yandex Lockbox** → монтируются как env-переменные функции. Локально для отладки — `cp .env.example .env`, заполнить.
-
-## Как этим пользоваться
-
-Когда платёжный аккаунт в YC будет верифицирован:
+Корневой `package.json` — мета-обёртка. Реальные команды живут в под-пакетах.
 
 ```bash
-# 1. Установить зависимости (один раз)
-npm install
-
-# 2. Установить и настроить yc CLI
-curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-yc init
-
-# 3. Создать функции и API Gateway в YC (см. план в issues — будет отдельный setup-скрипт)
-
-# 4. Деплой публичного API:
-npm run deploy-public
+npm test              # → cd public-api && npm test
+npm run test:public-api  # тест публичного API
+npm run deploy-public    # → cd public-api && npm run deploy (yc serverless ...)
+npm run deploy-private   # пока заглушка
 ```
 
-Каждый деплой — это `yc serverless function version create` с указанием entrypoint'а. Версии в YC иммутабельны; новый деплой = новая версия, переключение трафика — атомарно.
+Для парсера вызовы — изнутри `parser/`:
+```bash
+cd parser && npm test
+cd parser && npm run start    # локальный прогон scheduler'а
+```
+
+## Этапы по ТЗ v14 §22
+
+Верхнеуровневый трекинг по проекту в целом (не только этот репо):
+
+| Этап | Что | Где | Статус |
+|---|---|---|---|
+| 1 | HTML → React + Vite | `gdekod-frontend/` | ✓ |
+| 2 | Схема Azure SQL Database | `gdekod-frontend/database/` | ✓ |
+| 2.5 | Миграция на PostgreSQL + connection-example + deploy-скрипты на Yandex Object Storage | `gdekod-frontend/database/postgresql/` + `gdekod-frontend/deploy/` + `database/` (TBD) | ✓ |
+| 2.6 | Визуал v14 (бейдж свежести, голосование) | `gdekod-frontend/src/` | ✓ |
+| 3.1 | Backend-каркас | этот репо | заменён этапами 5+8 |
+| 4 | Yandex Cloud setup | — | блокирован верификацией платёжного аккаунта |
+| **5** | **Публичный API (read-only)** | `public-api/` | **✓** |
+| 6 | Приватный API (auth, subscription, account, support) | `src/handlers/private/` (план) | — |
+| 7 | Платежи (ЮKassa / CloudPayments) | внутри этапа 6 | — |
+| **8** | **Парсер промокодов (Playwright + tiered scheduling)** | `parser/` | **✓** |
+| 9 | Деплой и подключение домена | `gdekod-frontend/deploy/` | DNS-часть подготовлена, Yandex деплой — после этапа 4 |
+| 10 | Мониторинг и алерты | — | после стабилизации деплоя |
+
+## Связь с другими репо
+
+- **`gdekod-frontend`** — лендинг `gde-code.ru`, дёргает `public-api` через `fetch`.
+- **`gdekod-frontend/database/postgresql/`** — миграции PG (схема `public_data` для публичного API + `coupons` / `merchants` / `categories` / `coupon_checks` под Этап 8).
+
+## Принципы
+
+- **Каждый эндпоинт — отдельная Cloud Function.** Маршрутизация через Yandex API Gateway. Cold-start экономим переиспользованием PG pool через module-level singleton (см. `public-api/lib/db.js`).
+- **Stack trace не уходит клиенту.** Только `{ error, requestId }`. Подробности — в `console.error`, попадают в Yandex Cloud Logging.
+- **Параметризованные запросы везде** (`$1, $2, ...`). Никаких склеек строк в SQL.
+- **Секреты — из Yandex Lockbox**, не из `.env` в репо. Локально для отладки — `cp .env.example .env`, заполнить.
+- **Read-only пользователь PG для публичного API.** Отдельный `public_api_reader` с `GRANT SELECT ON SCHEMA public_data` и больше ничем.
+- **CORS whitelist** — только `https://gde-code.ru` и `https://www.gde-code.ru`.
 
 ## Что НЕ в этом репо
 
-- **Фронт** (`gde-code.ru` SPA) — в `gdekod-frontend`.
-- **Миграции БД** — в `gdekod-frontend/database/postgresql/`. БД у нас одна на проект, миграции живут рядом с фронтом по историческим причинам (можно переехать сюда позже).
-- **Админка** — отдельный backend, когда понадобится.
-- **Платежи, подписки, авторизация** — `src/handlers/private/` (план — `src/handlers/private/README.md`).
-
-## Статус
-
-`v0.1.0` — стартовый каркас. Деплой не делали, ждём верификацию аккаунта YC. Смоук-тест и подключение к фронту — сразу после первого успешного деплоя.
+- **Фронт** (`gde-code.ru` SPA) — `gdekod-frontend`.
+- **Платёжный шлюз и админка** — будут отдельным backend'ом, отдельным доменом (`admin.gde-code.ru`), чтобы скомпрометированный публичный API не мог дёрнуть админские ручки.
+- **Долгие фоновые задачи**, кроме периодической автопроверки — этого пока нет. Если появятся — Yandex Cloud Triggers + отдельные функции.
