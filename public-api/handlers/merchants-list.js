@@ -31,18 +31,23 @@ export async function handler(event, context) {
             extraWhere = ` AND m.category = $${params.length}`;
         }
 
+        // slug: пока в схеме нет колонки, выводим первую часть домена
+        // ('wildberries.ru' → 'wildberries'). После миграции public_data
+        // с добавлением m.slug — заменить на m.slug.
+        // GROUP BY m.id достаточно: PG распознаёт функциональную
+        // зависимость от первичного ключа (с 9.1+).
         const sql = `
             SELECT
                 m.id,
                 m.name,
-                m.slug,
+                split_part(m.domain, '.', 1) AS slug,
                 m.logo_url,
                 m.category,
                 COUNT(c.id) FILTER (WHERE c.status = 'active') AS coupons_count
             FROM public_data.merchants m
             LEFT JOIN public_data.coupons c ON c.merchant_id = m.id
             WHERE m.is_active = true${extraWhere}
-            GROUP BY m.id, m.name, m.slug, m.logo_url, m.category
+            GROUP BY m.id
             HAVING COUNT(c.id) FILTER (WHERE c.status = 'active') > 0
             ORDER BY m.name
         `;

@@ -89,6 +89,8 @@ export async function handler(event, context) {
         // 2. Страница
         const limitParam  = `$${params.length + 1}`;
         const offsetParam = `$${params.length + 2}`;
+        // merchant_slug: пока в схеме нет колонки slug, выводим первую
+        // часть домена. После миграции public_data — заменить на m.slug.
         const listSql = `
             SELECT
                 c.id,
@@ -98,11 +100,11 @@ export async function handler(event, context) {
                 c.last_checked_at,
                 c.expires_at,
                 c.status,
-                m.id        AS merchant_id,
-                m.name      AS merchant_name,
-                m.slug      AS merchant_slug,
-                m.logo_url  AS merchant_logo_url,
-                m.category  AS merchant_category
+                m.id                              AS merchant_id,
+                m.name                            AS merchant_name,
+                split_part(m.domain, '.', 1)      AS merchant_slug,
+                m.logo_url                        AS merchant_logo_url,
+                m.category                        AS merchant_category
             FROM public_data.coupons c
             JOIN public_data.merchants m ON m.id = c.merchant_id
             WHERE ${where}

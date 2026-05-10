@@ -29,8 +29,16 @@ export async function handler(event, context) {
 
         const pool = getPool();
 
+        // slug: пока в схеме нет колонки, выводим первую часть домена.
+        // После миграции public_data с m.slug — заменить на slug напрямую.
         const merchSql = `
-            SELECT id, name, slug, logo_url, category, created_at
+            SELECT
+                id,
+                name,
+                split_part(domain, '.', 1) AS slug,
+                logo_url,
+                category,
+                created_at
             FROM public_data.merchants
             WHERE id = $1 AND is_active = true
         `;
