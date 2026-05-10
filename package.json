@@ -1,0 +1,21 @@
+{
+    "name": "gdekod-backend",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Backend API для сервиса ГдеКод (Node.js + Yandex Cloud Functions + PostgreSQL)",
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "lint": "echo 'lint not configured yet — будет ESLint после первого деплоя' && exit 0",
+        "test": "echo 'tests not configured yet — будет Vitest, см. tests/README.md' && exit 0",
+        "deploy-public:merchants": "yc serverless function version create --function-name gdekod-public-merchants --runtime nodejs20 --entrypoint src/handlers/public/merchants.handler --memory 128m --execution-timeout 10s --source-path .",
+        "deploy-public:coupons": "yc serverless function version create --function-name gdekod-public-coupons --runtime nodejs20 --entrypoint src/handlers/public/coupons.handler --memory 128m --execution-timeout 10s --source-path .",
+        "deploy-public": "npm run deploy-public:merchants && npm run deploy-public:coupons",
+        "deploy-private": "echo 'private API not implemented yet — см. src/handlers/private/README.md' && exit 0"
+    },
+    "dependencies": {
+        "pg": "^8.13.0"
+    }
+}
