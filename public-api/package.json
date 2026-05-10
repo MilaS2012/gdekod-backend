@@ -1,0 +1,22 @@
+{
+    "name": "gdekod-public-api",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Публичный API для лендинга gde-code.ru — merchants/coupons read-only",
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "test": "node --test --test-reporter=spec 'test/**/*.test.js'",
+        "lint": "echo 'lint not configured yet' && exit 0",
+        "deploy:merchants-list": "yc serverless function version create --function-name gdekod-public-merchants-list --runtime nodejs20 --entrypoint handlers/merchants-list.handler --memory 128m --execution-timeout 10s --source-path .",
+        "deploy:merchant-detail": "yc serverless function version create --function-name gdekod-public-merchant-detail --runtime nodejs20 --entrypoint handlers/merchant-detail.handler --memory 128m --execution-timeout 10s --source-path .",
+        "deploy:coupons-list": "yc serverless function version create --function-name gdekod-public-coupons-list --runtime nodejs20 --entrypoint handlers/coupons-list.handler --memory 128m --execution-timeout 10s --source-path .",
+        "deploy:coupon-detail": "yc serverless function version create --function-name gdekod-public-coupon-detail --runtime nodejs20 --entrypoint handlers/coupon-detail.handler --memory 128m --execution-timeout 10s --source-path .",
+        "deploy": "npm run deploy:merchants-list && npm run deploy:merchant-detail && npm run deploy:coupons-list && npm run deploy:coupon-detail"
+    },
+    "dependencies": {
+        "pg": "^8.13.0"
+    }
+}
