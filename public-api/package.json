@@ -9,6 +9,7 @@
     },
     "scripts": {
         "test": "node --test --test-reporter=spec 'test/**/*.test.js'",
+        "test:coverage": "node --test --experimental-test-coverage --test-reporter=spec 'test/**/*.test.js'",
         "lint": "echo 'lint not configured yet' && exit 0",
         "deploy:merchants-list": "yc serverless function version create --function-name gdekod-public-merchants-list --runtime nodejs20 --entrypoint handlers/merchants-list.handler --memory 128m --execution-timeout 10s --source-path .",
         "deploy:merchant-detail": "yc serverless function version create --function-name gdekod-public-merchant-detail --runtime nodejs20 --entrypoint handlers/merchant-detail.handler --memory 128m --execution-timeout 10s --source-path .",

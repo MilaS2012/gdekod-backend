@@ -8,10 +8,12 @@
         "node": ">=20"
     },
     "scripts": {
-        "lint": "echo 'root: каждый под-пакет (public-api, parser) лининтуется отдельно' && exit 0",
-        "test": "cd public-api && npm test",
+        "lint": "echo 'root: каждый под-пакет (public-api, private-api, parser) лининтуется отдельно' && exit 0",
+        "test": "npm run test:public-api && npm run test:private-api",
         "test:public-api": "cd public-api && npm test",
+        "test:private-api": "cd private-api && npm test",
+        "test:coverage": "cd public-api && npm run test:coverage && cd ../private-api && npm run test:coverage",
         "deploy-public": "cd public-api && npm run deploy",
-        "deploy-private": "echo 'private API ещё не реализован — см. src/handlers/private/README.md' && exit 0"
+        "deploy-private": "echo 'private API на этапе 6 (каркас 6.1), деплой включим после разблокировки Yandex Cloud' && exit 0"
     }
 }
