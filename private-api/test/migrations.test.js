@@ -41,6 +41,14 @@
 //     already exists». Тестируем только apply→rollback (без повторного apply).
 //     ⤳ Полный круг apply → rollback → apply снова — тест в 6.10
 //
+//  8. Partial unique index с условием `WHERE used_at IS NULL` (idx_otp_one_active_per_phone)
+//     ломает SELECT-запросы `WHERE phone = $1` через pg-pool-adapter:
+//     планировщик pg-mem ошибочно применяет index-WHERE ко всем запросам,
+//     использующим эту колонку. В test/helpers.js этот индекс дропается
+//     после миграций — поведение partial unique само проверяется здесь
+//     (отдельный freshDb() без adapter'а, прямой db.public.none).
+//     ⤳ В реальном Postgres такого нет — проверим в 6.10
+//
 //  PostgreSQL поддерживает все используемые конструкции нативно.
 //  Ограничения — только у pg-mem, не у production-SQL.
 // =============================================================================

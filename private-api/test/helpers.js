@@ -51,6 +51,20 @@ export async function newPgMemPool() {
         db.public.none(sql);
     }
 
+    // ★ pg-mem 3.x quirk: partial unique index `WHERE used_at IS NULL`
+    //   на otp_codes(phone) ломает SELECT-запросы `WHERE phone = $1`.
+    //   Планировщик pg-mem ошибочно применяет index-WHERE-условие ко
+    //   всем запросам, использующим колонку из индекса, даже когда в
+    //   SELECT нет фильтра по used_at.
+    //
+    //   В реальном Postgres такого нет (проверим в этапе 6.10).
+    //
+    //   Поведение самого partial unique проверяется в test/migrations.test.js,
+    //   где используется отдельный freshDb() без adapter'а. Здесь индекс
+    //   функционально не нужен — тесты rate-limit и handler'ов имитируют
+    //   сценарии, в которых старые OTP уже used_at-помечены.
+    db.public.none('DROP INDEX private_data.idx_otp_one_active_per_phone');
+
     const { Pool } = db.adapters.createPg();
     return new Pool();
 }
@@ -117,6 +131,40 @@ export async function createTestSession(pool, user_id, opts = {}) {
  */
 export function eventWithBearer(token) {
     return { headers: { authorization: token == null ? undefined : `Bearer ${token}` } };
+}
+
+/**
+ * Вставляет «использованный» OTP-запись для тестов rate-limit.
+ * used_at = now() выставляется обязательно — иначе сорвётся partial unique
+ * на phone (один активный OTP на номер).
+ *
+ * createdAtOffsetSeconds — сколько секунд НАЗАД от now() (положительное число).
+ */
+export async function insertUsedOtp(pool, { phone, ip = null, createdAtOffsetSeconds = 0 }) {
+    const created = new Date(Date.now() - createdAtOffsetSeconds * 1000);
+    const expires = new Date(Date.now() + 5 * 60 * 1000);
+    await pool.query(
+        `INSERT INTO private_data.otp_codes
+           (phone, code_hash, channel, expires_at, ip_address, created_at, used_at)
+         VALUES ($1, 'h', 'sms', $2, $3, $4, now())`,
+        [phone, expires, ip, created],
+    );
+}
+
+/**
+ * Вставляет «использованный» magic-link-токен для тестов rate-limit.
+ */
+export async function insertUsedMagicLink(pool, { user_id, createdAtOffsetSeconds = 0 }) {
+    const created = new Date(Date.now() - createdAtOffsetSeconds * 1000);
+    const expires = new Date(Date.now() + 30 * 60 * 1000);
+    // Уникальный токен на каждую запись.
+    const token = `mock-${randomUUID()}`;
+    await pool.query(
+        `INSERT INTO private_data.magic_link_tokens
+           (token, user_id, expires_at, created_at, used_at)
+         VALUES ($1, $2, $3, $4, now())`,
+        [token, user_id, expires, created],
+    );
 }
 
 /**
