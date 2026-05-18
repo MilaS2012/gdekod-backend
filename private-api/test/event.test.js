@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { extractIp, extractUserAgent, userAgentHash } from '../lib/event.js';
+import { extractIp, extractUserAgent, userAgentHash, parseUserAgent } from '../lib/event.js';
 
 // -----------------------------------------------------------------------------
 // extractIp
@@ -78,4 +78,51 @@ test('userAgentHash: null/пустое → null', () => {
     assert.equal(userAgentHash(''),         null);
     assert.equal(userAgentHash(undefined),  null);
     assert.equal(userAgentHash(123),        null);
+});
+
+// -----------------------------------------------------------------------------
+// parseUserAgent — UI-метка устройства
+// -----------------------------------------------------------------------------
+
+test('parseUserAgent: Chrome на macOS', () => {
+    const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    assert.equal(parseUserAgent(ua), 'Chrome 120 on macOS');
+});
+
+test('parseUserAgent: Safari на iPhone (через Version/X.*Safari)', () => {
+    const ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1';
+    assert.equal(parseUserAgent(ua), 'Safari 17 on iPhone');
+});
+
+test('parseUserAgent: Yandex Browser на Windows 10 (Yandex перед Chrome)', () => {
+    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 YaBrowser/23.11.0.2630 Safari/537.36';
+    assert.equal(parseUserAgent(ua), 'Yandex 23 on Windows 10');
+});
+
+test('parseUserAgent: Edge на Windows 11 (Edge перед Chrome)', () => {
+    const ua = 'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0';
+    assert.equal(parseUserAgent(ua), 'Edge 120 on Windows 11');
+});
+
+test('parseUserAgent: Firefox на Linux', () => {
+    const ua = 'Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0';
+    assert.equal(parseUserAgent(ua), 'Firefox 121 on Linux');
+});
+
+test('parseUserAgent: Chrome на Android (Android перед Linux)', () => {
+    const ua = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36';
+    assert.equal(parseUserAgent(ua), 'Chrome 119 on Android');
+});
+
+test('parseUserAgent: пустая строка / не-строка → "Unknown device"', () => {
+    assert.equal(parseUserAgent(''),         'Unknown device');
+    assert.equal(parseUserAgent(null),       'Unknown device');
+    assert.equal(parseUserAgent(undefined),  'Unknown device');
+    assert.equal(parseUserAgent(123),        'Unknown device');
+});
+
+test('parseUserAgent: очень длинная UA → результат не более 100 chars', () => {
+    const ua = 'Mozilla/5.0 ' + 'A'.repeat(500) + ' Chrome/120 ' + 'B'.repeat(500) + ' macOS';
+    const result = parseUserAgent(ua);
+    assert.ok(result.length <= 100, `длина ${result.length} > 100`);
 });

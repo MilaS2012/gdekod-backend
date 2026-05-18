@@ -27,7 +27,7 @@ import {
 import { verifyOtpCode } from '../../lib/otp.js';
 import { signJwt } from '../../lib/jwt.js';
 import { maskPhone, maskIp, maskToken } from '../../lib/mask-pii.js';
-import { extractIp, extractUserAgent, userAgentHash } from '../../lib/event.js';
+import { extractIp, extractUserAgent, userAgentHash, parseUserAgent } from '../../lib/event.js';
 
 const PHONE_RE = /^\+\d{10,15}$/;
 const CODE_RE  = /^(?:\d{4}|\d{6})$/;     // 4 для flash_call/voice, 6 для sms — ровно эти длины
@@ -133,18 +133,20 @@ export async function handler(event, context, deps = {}) {
         }
 
         // ─── 7. INSERT auth_sessions (атомарно с RETURNING) ──────────────────
-        const ip      = extractIp(event);
-        const uaHash  = userAgentHash(extractUserAgent(event));
-        const expires = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000);
+        const ip        = extractIp(event);
+        const ua        = extractUserAgent(event);
+        const uaHash    = userAgentHash(ua);
+        const uaSummary = parseUserAgent(ua);
+        const expires   = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000);
 
         let session;
         try {
             session = (await pool.query(
                 `INSERT INTO private_data.auth_sessions
-                   (user_id, expires_at, ip_address, user_agent_hash)
-                 VALUES ($1, $2, $3, $4)
+                   (user_id, expires_at, ip_address, user_agent_hash, user_agent_summary)
+                 VALUES ($1, $2, $3, $4, $5)
                  RETURNING session_id`,
-                [user.id, expires, ip, uaHash],
+                [user.id, expires, ip, uaHash, uaSummary],
             )).rows[0];
         } catch (err) {
             // OTP уже used_at = now(), сессии нет. Откатывать OTP не пытаемся

@@ -288,6 +288,21 @@ test('D16: user_agent_hash в session = SHA-256(UA из headers)', async () => {
     resetTestAuthSecrets();
 });
 
+test('D16b: user_agent_summary = parseUserAgent(UA) — Chrome on macOS', async () => {
+    setTestAuthSecrets();
+    const pool = await newPgMemPool();
+    await createTestUser(pool, PHONE);
+    await createTestOtp(pool, { phone: PHONE, code: VALID_CODE });
+
+    const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    await verifyHandler(makeEvent({ body: { phone: PHONE, code: VALID_CODE }, userAgent: UA }), {}, { pool });
+
+    const row = (await pool.query(
+        `SELECT user_agent_summary FROM private_data.auth_sessions LIMIT 1`)).rows[0];
+    assert.equal(row.user_agent_summary, 'Chrome 120 on macOS');
+    resetTestAuthSecrets();
+});
+
 test('D17: ip_address из event сохранён в session', async () => {
     setTestAuthSecrets();
     const pool = await newPgMemPool();

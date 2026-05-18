@@ -544,20 +544,20 @@ test('rollback round-trip: после rollback можно применять п�
 // lib/migrate.js — проверяем хелперы listMigrations / listRollbacks
 // -----------------------------------------------------------------------------
 
-test('migrate.js listMigrations — 6 файлов в правильном порядке', async () => {
+test('migrate.js listMigrations — все миграции в числовом порядке', async () => {
     const files = await listMigrations();
-    assert.equal(files.length, 6);
+    assert.ok(files.length >= 7, `ожидаем минимум 7 миграций, получено ${files.length}`);
     assert.equal(files[0], '001_init.sql');
-    assert.equal(files[5], '006_otp_codes.sql');
+    assert.equal(files.at(-1), '007_auth_sessions_ua_summary.sql');
     // Алфавитный порядок = числовой при 3-значном префиксе.
     for (let i = 1; i < files.length; i++) {
         assert.ok(files[i] > files[i - 1], `файлы не отсортированы: ${files[i - 1]} → ${files[i]}`);
     }
 });
 
-test('migrate.js listRollbacks — 6 файлов в обратном порядке', async () => {
+test('migrate.js listRollbacks — все rollback в обратном порядке', async () => {
     const files = await listRollbacks();
-    assert.equal(files.length, 6);
-    assert.equal(files[0], '006_rollback.sql'); // от старшего к младшему
-    assert.equal(files[5], '001_rollback.sql');
+    assert.ok(files.length >= 7);
+    assert.equal(files[0], '007_rollback.sql');     // от старшего к младшему
+    assert.equal(files.at(-1), '001_rollback.sql');
 });

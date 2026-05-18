@@ -267,6 +267,21 @@ test('17: user_agent_hash и ip_address сохранены в session', async ()
     resetTestAuthSecrets();
 });
 
+test('17b: user_agent_summary в session = parseUserAgent(UA)', async () => {
+    setTestAuthSecrets();
+    const pool = await newPgMemPool();
+    const { user_id } = await createTestUser(pool);
+    const { token } = await createTestMagicLinkToken(pool, { user_id });
+
+    const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1';
+    await loginMagicHandler(makeEvent({ body: { token }, userAgent: UA }), {}, { pool });
+
+    const sess = await pool.query(
+        `SELECT user_agent_summary FROM private_data.auth_sessions LIMIT 1`);
+    assert.equal(sess.rows[0].user_agent_summary, 'Safari 17 on iPhone');
+    resetTestAuthSecrets();
+});
+
 // =============================================================================
 // Группа F — Логи
 // =============================================================================

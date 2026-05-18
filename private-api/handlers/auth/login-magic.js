@@ -35,7 +35,7 @@ import {
 } from '../../lib/response.js';
 import { signJwt } from '../../lib/jwt.js';
 import { maskIp, maskToken } from '../../lib/mask-pii.js';
-import { extractIp, extractUserAgent, userAgentHash } from '../../lib/event.js';
+import { extractIp, extractUserAgent, userAgentHash, parseUserAgent } from '../../lib/event.js';
 
 // magic_link_token = 32 байта base64url ≈ 43 символа. Допускаем 40-48 с запасом.
 const TOKEN_RE = /^[A-Za-z0-9_-]{40,48}$/;
@@ -100,17 +100,19 @@ export async function handler(event, context, deps = {}) {
         }
 
         // ─── 4. INSERT auth_sessions ──────────────────────────────────────────
-        const uaHash  = userAgentHash(extractUserAgent(event));
-        const expires = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000);
+        const ua        = extractUserAgent(event);
+        const uaHash    = userAgentHash(ua);
+        const uaSummary = parseUserAgent(ua);
+        const expires   = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000);
 
         let session;
         try {
             session = (await pool.query(
                 `INSERT INTO private_data.auth_sessions
-                   (user_id, expires_at, ip_address, user_agent_hash)
-                 VALUES ($1, $2, $3, $4)
+                   (user_id, expires_at, ip_address, user_agent_hash, user_agent_summary)
+                 VALUES ($1, $2, $3, $4, $5)
                  RETURNING session_id`,
-                [user.id, expires, ip, uaHash],
+                [user.id, expires, ip, uaHash, uaSummary],
             )).rows[0];
         } catch (err) {
             // Токен уже used, сессии нет. Не откатываем (см. шапку).
