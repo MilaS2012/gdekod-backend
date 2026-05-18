@@ -67,6 +67,11 @@ export async function newPgMemPool() {
     //   сценарии, в которых старые OTP уже used_at-помечены.
     db.public.none('DROP INDEX private_data.idx_otp_one_active_per_phone');
 
+    // ★ Тот же баг для idx_subs_one_active_per_user (status='active'):
+    //   SELECT WHERE user_id=$1 без фильтра по status находит 0 rows для
+    //   pending/cancelled подписок. На реальном PG этого нет.
+    db.public.none('DROP INDEX private_data.idx_subs_one_active_per_user');
+
     const { Pool } = db.adapters.createPg();
     return new Pool();
 }
@@ -204,6 +209,50 @@ export async function markUserEmailVerified(pool, user_id, email) {
           WHERE id = $1`,
         [user_id, email],
     );
+}
+
+/**
+ * Создаёт подписку для тестов /subscription/*.
+ *
+ * opts:
+ *   - tariff:     'daily_35' | 'monthly_499' (default 'daily_35')
+ *   - provider:   default 'operator_mock' для daily_35, 'cloudpayments_card' для monthly_499
+ *   - status:     'active' (default) | 'pending' | 'cancelled' | 'expired'
+ *   - amount_kopecks: default 3500 для daily, 49900 для monthly
+ *   - nextChargeOffsetSeconds: смещение next_charge_at от now() (отрицательное = в прошлом)
+ *
+ * Возвращает { id, status, ... }.
+ */
+export async function createTestSubscription(pool, user_id, opts = {}) {
+    const {
+        tariff = 'daily_35',
+        provider = tariff === 'daily_35' ? 'operator_mock' : 'cloudpayments_card',
+        status = 'active',
+        amount_kopecks = tariff === 'daily_35' ? 3500 : 49900,
+        nextChargeOffsetSeconds = 86_400,
+    } = opts;
+
+    const now           = new Date();
+    const expiresAt     = status === 'active' || status === 'cancelled'
+        ? new Date(now.getTime() + 86_400 * 1000)
+        : null;
+    const activatedAt   = status === 'active' || status === 'cancelled' ? now : null;
+    const cancelledAt   = status === 'cancelled' ? now : null;
+    const nextChargeAt  = status === 'active'
+        ? new Date(now.getTime() + nextChargeOffsetSeconds * 1000)
+        : null;
+
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.subscriptions
+           (user_id, tariff, provider, status, amount_kopecks,
+            activated_at, cancelled_at, expires_at, next_charge_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, status, tariff, provider, amount_kopecks,
+                   activated_at, expires_at, next_charge_at`,
+        [user_id, tariff, provider, status, amount_kopecks,
+         activatedAt, cancelledAt, expiresAt, nextChargeAt],
+    );
+    return rows[0];
 }
 
 /** Помечает email пользователя как привязанный, но НЕ verified. */
