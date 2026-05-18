@@ -36,11 +36,15 @@
 import { getPool } from './db.js';
 
 export const LIMITS = Object.freeze({
-    SMS_COOLDOWN_SECONDS:    60,
-    SMS_DAILY_PER_PHONE:     5,
-    SMS_DAILY_PER_IP:        20,
-    EMAIL_COOLDOWN_SECONDS:  60,
-    EMAIL_DAILY_PER_USER:    10,
+    SMS_COOLDOWN_SECONDS:           60,
+    SMS_DAILY_PER_PHONE:            5,
+    SMS_DAILY_PER_IP:               20,
+    EMAIL_COOLDOWN_SECONDS:         60,
+    EMAIL_DAILY_PER_USER:           10,
+    // email-attach (otp_codes → email_verify_tokens): отдельный счётчик
+    // для /auth/email/attach + /auth/email/resend.
+    EMAIL_ATTACH_COOLDOWN_SECONDS:  60,
+    EMAIL_ATTACH_DAILY_PER_USER:    5,
 });
 
 // -----------------------------------------------------------------------------
@@ -157,6 +161,60 @@ export async function emailRateCheck({ user_id }, deps = {}) {
     );
     if (daily.rows[0].cnt >= LIMITS.EMAIL_DAILY_PER_USER) {
         return { allowed: false, reason: 'daily_limit_email' };
+    }
+
+    return { allowed: true };
+}
+
+// -----------------------------------------------------------------------------
+// emailAttachRateCheck — для /auth/email/attach и /auth/email/resend.
+//
+// Считает по email_verify_tokens (а не magic_link_tokens). Лимит ниже,
+// чем у magic-link: 5/сутки против 10. Привязка email — редкая операция,
+// 5 попыток в день более чем достаточно (защита от спама "перепривязываю").
+// -----------------------------------------------------------------------------
+
+/**
+ * @param {{ user_id: string }} input
+ * @param {{ pool?: object }} [deps]
+ * @returns {Promise<{ allowed: boolean, reason?: string, retryAfterSeconds?: number }>}
+ */
+export async function emailAttachRateCheck({ user_id }, deps = {}) {
+    const pool = deps.pool ?? getPool();
+    if (typeof user_id !== 'string' || user_id.length === 0) {
+        throw new Error('emailAttachRateCheck: user_id обязателен');
+    }
+
+    // 1. Cooldown
+    const last = await pool.query(
+        `SELECT created_at
+           FROM private_data.email_verify_tokens
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [user_id],
+    );
+    if (last.rows.length > 0) {
+        const ageSeconds = ageInSeconds(last.rows[0].created_at);
+        if (ageSeconds < LIMITS.EMAIL_ATTACH_COOLDOWN_SECONDS) {
+            return {
+                allowed: false,
+                reason: 'cooldown',
+                retryAfterSeconds: LIMITS.EMAIL_ATTACH_COOLDOWN_SECONDS - ageSeconds,
+            };
+        }
+    }
+
+    // 2. Daily per user
+    const daily = await pool.query(
+        `SELECT count(*)::int AS cnt
+           FROM private_data.email_verify_tokens
+          WHERE user_id = $1
+            AND created_at > now() - interval '24 hours'`,
+        [user_id],
+    );
+    if (daily.rows[0].cnt >= LIMITS.EMAIL_ATTACH_DAILY_PER_USER) {
+        return { allowed: false, reason: 'daily_limit_email_attach' };
     }
 
     return { allowed: true };

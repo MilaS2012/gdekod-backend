@@ -17,7 +17,7 @@ import { newDb, DataType } from 'pg-mem';
 
 import { signJwt } from '../lib/jwt.js';
 import { hashOtpCode } from '../lib/otp.js';
-import { generateMagicLinkToken } from '../lib/magic-link.js';
+import { generateRandomToken } from '../lib/tokens.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
@@ -217,10 +217,45 @@ export async function attachUnverifiedEmail(pool, user_id, email) {
 }
 
 /**
+ * Создаёт email-verify токен в БД для тестов /auth/email/verify.
+ *
+ * opts:
+ *   - email:    string (default 'pending@example.com')
+ *   - token:    string (default — свежий generateRandomToken)
+ *   - expired:  boolean (default false) — expires_at в прошлом
+ *   - used:     boolean (default false)
+ *
+ * Возвращает { token, user_id, email, expires_at }.
+ */
+export async function createTestVerifyToken(pool, { user_id, email = 'pending@example.com',
+                                                    token = null, expired = false,
+                                                    used = false } = {}) {
+    const t = token ?? generateRandomToken();
+    const expiresAt = expired
+        ? new Date(Date.now() - 60 * 1000)
+        : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const usedAt = used ? new Date() : null;
+
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.email_verify_tokens
+           (token, user_id, email, expires_at, used_at)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING token, user_id, email, expires_at`,
+        [t, user_id, email, expiresAt, usedAt],
+    );
+    return {
+        token:      rows[0].token,
+        user_id:    rows[0].user_id,
+        email:      rows[0].email,
+        expires_at: rows[0].expires_at,
+    };
+}
+
+/**
  * Создаёт magic-link токен в БД для тестов /auth/login-magic.
  *
  * opts:
- *   - token:    string (default — свежий generateMagicLinkToken)
+ *   - token:    string (default — свежий generateRandomToken)
  *   - expired:  boolean (default false)
  *   - used:     boolean (default false)
  *   - ip:       string | null (default null)
@@ -230,7 +265,7 @@ export async function attachUnverifiedEmail(pool, user_id, email) {
 export async function createTestMagicLinkToken(pool, { user_id, token = null,
                                                        expired = false, used = false,
                                                        ip = null } = {}) {
-    const t = token ?? generateMagicLinkToken();
+    const t = token ?? generateRandomToken();
     const expiresAt = expired
         ? new Date(Date.now() - 60 * 1000)
         : new Date(Date.now() + 30 * 60 * 1000);

@@ -118,6 +118,14 @@ test('response: статусы 400/401/403/404/409/410/500', () => {
     assert.equal(serverError().statusCode,        500);
 });
 
+test('response: conflict принимает объект { error, message }', () => {
+    const r = conflict({ error: 'foo', message: 'human-readable' });
+    assert.equal(r.statusCode, 409);
+    const body = JSON.parse(r.body);
+    assert.equal(body.error,   'foo');
+    assert.equal(body.message, 'human-readable');
+});
+
 test('response: 405 — Allow-заголовок собирается из массива', () => {
     const r = methodNotAllowed(['GET', 'POST']);
     assert.equal(r.statusCode, 405);

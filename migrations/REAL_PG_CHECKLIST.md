@@ -13,6 +13,7 @@
 - [ ] **`DROP FUNCTION private_data.set_updated_at();` (с пустыми скобками)** — корректно выполняется в rollback 001. pg-mem на этом синтаксисе падает.
 - [ ] **`DO $$ ... END $$` с `RAISE NOTICE` в rollback 001** — реально пишет предупреждение в psql output («⚠️  rollback 001 удалит все таблицы …»).
 - [ ] **Производительность `idx_sessions_active` (partial WHERE revoked_at IS NULL)** при ≥ 100k строк в `auth_sessions`. `EXPLAIN ANALYZE SELECT ... WHERE session_id=$1 AND revoked_at IS NULL` должен использовать partial-индекс, не sequential scan.
+- [ ] **UNIQUE violation возвращает SQLSTATE `23505` в `err.code`** (для `handlers/auth/email/attach.js` race-catch при INSERT). pg-mem может не имитировать конкретный SQLSTATE. В реальном PG: создаём 2 параллельных attach с одним email на разных user'ах → один проходит, второй ловит ошибку с `err.code === '23505'` и возвращает 409 email_taken (не 500).
 - [ ] **Partial unique `idx_otp_one_active_per_phone` (`WHERE used_at IS NULL`) не ломает SELECT по phone.** В pg-mem 3.x обнаружен bug: после создания такого индекса `SELECT * FROM otp_codes WHERE phone = $1` возвращает 0 строк, если у строки `used_at IS NOT NULL`. Планировщик ошибочно применяет index-WHERE ко всему. Проверяем, что реальный PG ведёт себя корректно: вставляем 5 used OTP с одним phone (partial unique это разрешает), `SELECT WHERE phone=$1` должен вернуть все 5 строк. См. test/helpers.js — там этот индекс дропается для обхода pg-mem-бага.
 
 ## Сопутствующие проверки (на той же сессии)

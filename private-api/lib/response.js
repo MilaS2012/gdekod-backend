@@ -69,11 +69,20 @@ export function methodNotAllowed(allow, { origin = null } = {}) {
     };
 }
 
-export function conflict(message = 'Conflict', { origin = null } = {}) {
+/**
+ * 409 Conflict. Принимает либо строку (становится `{ error: <str> }`),
+ * либо объект `{ error, message? }` для случаев, когда фронт должен
+ * показать пользователю причину отказа (например, при попытке смены
+ * verified email через attach — нужно объяснить, что делать).
+ */
+export function conflict(errorOrObject = 'Conflict', { origin = null } = {}) {
+    const body = typeof errorOrObject === 'string'
+        ? { error: errorOrObject }
+        : errorOrObject;
     return {
         statusCode: 409,
         headers: baseHeaders(origin),
-        body: JSON.stringify({ error: message }),
+        body: JSON.stringify(body),
     };
 }
 

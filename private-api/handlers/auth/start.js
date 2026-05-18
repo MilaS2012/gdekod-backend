@@ -20,7 +20,7 @@ import {
 } from '../../lib/response.js';
 import { smsRateCheck, emailRateCheck } from '../../lib/rate-limit.js';
 import { generateOtpCode, hashOtpCode, OTP_LENGTH } from '../../lib/otp.js';
-import { generateMagicLinkToken } from '../../lib/magic-link.js';
+import { generateRandomToken } from '../../lib/tokens.js';
 import { sendOtpSms } from '../../lib/sms-provider.js';
 import { sendMagicLink } from '../../lib/email-provider.js';
 import { maskPhone, maskIp } from '../../lib/mask-pii.js';
@@ -92,7 +92,7 @@ export async function handler(event, context, deps = {}) {
                 });
             }
 
-            const token = generateMagicLinkToken();
+            const token = generateRandomToken();
             const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL_SECONDS * 1000);
             await pool.query(
                 `INSERT INTO private_data.magic_link_tokens
