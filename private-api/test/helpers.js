@@ -431,6 +431,81 @@ export async function createTestMagicLinkToken(pool, { user_id, token = null,
  *
  * Возвращает { id, code, code_hash, expires_at }.
  */
+/**
+ * Создаёт support_ticket для тестов /api/support/tickets.
+ *
+ * opts:
+ *   - category:       'payment' | 'subscription' | 'coupon' | 'account' |
+ *                     'feature' | 'other' (default 'other')
+ *   - subject:        string (default 'Test subject')
+ *   - message:        string (default 'Test message at least 10 chars')
+ *   - status:         'open' (default) | 'in_progress' | 'closed' | 'spam'
+ *   - contact_phone:  string (default '+79261111111')
+ *   - contact_email:  string | null (default null)
+ *   - createdAtOffsetSeconds: сколько секунд НАЗАД (положительное) — для
+ *                     тестов лимитов по времени.
+ *
+ * Возвращает row тикета.
+ */
+export async function createTestTicket(pool, user_id, opts = {}) {
+    const {
+        category       = 'other',
+        subject        = 'Test subject',
+        message        = 'Test message at least 10 chars',
+        status         = 'open',
+        contact_phone  = '+79261111111',
+        contact_email  = null,
+        createdAtOffsetSeconds = 0,
+    } = opts;
+    const created = new Date(Date.now() - createdAtOffsetSeconds * 1000);
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.support_tickets
+           (user_id, category, subject, message, status,
+            contact_phone, contact_email, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+         RETURNING id, user_id, category, subject, status,
+                   created_at, contact_phone, contact_email`,
+        [user_id, category, subject, message, status,
+         contact_phone, contact_email, created],
+    );
+    return rows[0];
+}
+
+/**
+ * Создаёт запись в events_log для тестов.
+ *
+ * opts:
+ *   - event_type:     string (default 'coupon_viewed')
+ *   - payload:        object | null (default null) — записывается как JSONB
+ *   - coupon_id:      number | null
+ *   - merchant_id:    number | null
+ *   - ip:             string | null
+ *   - ua_hash:        string | null
+ *   - createdAtOffsetSeconds: сколько секунд НАЗАД (положительное)
+ */
+export async function createTestEvent(pool, user_id, opts = {}) {
+    const {
+        event_type    = 'coupon_viewed',
+        payload       = null,
+        coupon_id     = null,
+        merchant_id   = null,
+        ip            = null,
+        ua_hash       = null,
+        createdAtOffsetSeconds = 0,
+    } = opts;
+    const created = new Date(Date.now() - createdAtOffsetSeconds * 1000);
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.events_log
+           (user_id, event_type, payload, coupon_id, merchant_id,
+            ip_address, user_agent_hash, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, event_type, payload, created_at`,
+        [user_id, event_type, payload != null ? JSON.stringify(payload) : null,
+         coupon_id, merchant_id, ip, ua_hash, created],
+    );
+    return rows[0];
+}
+
 export async function createTestOtp(pool, { phone, code = '1234', channel = 'flash_call',
                                             expired = false, used = false,
                                             attempts = 0, ip = null } = {}) {

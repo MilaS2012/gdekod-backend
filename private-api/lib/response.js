@@ -28,6 +28,16 @@ export function ok(body, { origin = null, headers = {} } = {}) {
     };
 }
 
+// 201 Created — используется для эндпоинтов создания ресурсов
+// (POST /api/support/tickets и др.).
+export function created(body, { origin = null, headers = {} } = {}) {
+    return {
+        statusCode: 201,
+        headers: { ...baseHeaders(origin), ...headers },
+        body: JSON.stringify(body),
+    };
+}
+
 export function badRequest(message, { origin = null } = {}) {
     return {
         statusCode: 400,
