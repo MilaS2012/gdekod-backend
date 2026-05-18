@@ -240,14 +240,14 @@ test('mask-pii: maskIp — невалидное → ***', () => {
 // lib/sms-provider.js (мок)
 // -----------------------------------------------------------------------------
 
-test('sms-provider: мок не пишет код в лог', async () => {
+test('sms-provider: мок не пишет код в лог (channel=sms)', async () => {
     const phone = '+79261234567';
     const code  = '654321';
     delete process.env.SMS_RU_API_ID;
 
     let result;
     const logs = await captureLogs(async () => {
-        result = await sendOtpSms({ phone, code });
+        result = await sendOtpSms({ phone, code, channel: 'sms' });
     });
 
     assert.equal(result.ok, true);
@@ -255,16 +255,29 @@ test('sms-provider: мок не пишет код в лог', async () => {
     assert.match(result.externalId, /^[0-9a-f-]{36}$/);
 
     const combined = logs.join('\n');
-    assert.ok(!combined.includes(code),         `код "${code}" попал в лог: ${combined}`);
-    assert.ok(!combined.includes(phone),        `номер "${phone}" попал в лог: ${combined}`);
+    assert.ok(!combined.includes(code),          `код "${code}" попал в лог: ${combined}`);
+    assert.ok(!combined.includes(phone),         `номер "${phone}" попал в лог: ${combined}`);
     assert.ok(combined.includes('+7926***4567'), `замаскированный номер не найден: ${combined}`);
+    // channel пишется как kind: '<channel>'
+    assert.match(combined, /"kind":"sms"/);
 });
 
-test('sms-provider: валидация phone и code', async () => {
+test('sms-provider: мок поддерживает flash_call и voice', async () => {
     delete process.env.SMS_RU_API_ID;
-    await assert.rejects(sendOtpSms({ phone: '79261234567', code: '123456' }), /E\.164/);
-    await assert.rejects(sendOtpSms({ phone: '+79261234567', code: 'abc' }),   /digits/);
-    await assert.rejects(sendOtpSms({ phone: '+79261234567', code: '12' }),    /digits/);
+    const logs1 = await captureLogs(() => sendOtpSms({ phone: '+79261234567', code: '1234', channel: 'flash_call' }));
+    const logs2 = await captureLogs(() => sendOtpSms({ phone: '+79261234567', code: '123456', channel: 'voice' }));
+    assert.match(logs1.join('\n'), /"kind":"flash_call"/);
+    assert.match(logs2.join('\n'), /"kind":"voice"/);
+});
+
+test('sms-provider: валидация phone, code, channel', async () => {
+    delete process.env.SMS_RU_API_ID;
+    await assert.rejects(sendOtpSms({ phone: '79261234567', code: '123456', channel: 'sms' }), /E\.164/);
+    await assert.rejects(sendOtpSms({ phone: '+79261234567', code: 'abc',    channel: 'sms' }), /digits/);
+    await assert.rejects(sendOtpSms({ phone: '+79261234567', code: '12',     channel: 'sms' }), /digits/);
+    // channel обязателен и должен быть из набора
+    await assert.rejects(sendOtpSms({ phone: '+79261234567', code: '123456' }),                       /channel/);
+    await assert.rejects(sendOtpSms({ phone: '+79261234567', code: '123456', channel: 'whatsapp' }), /channel/);
 });
 
 // -----------------------------------------------------------------------------

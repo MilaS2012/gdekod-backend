@@ -30,6 +30,14 @@ const PHONE_RE = /^\+\d{10,15}$/;
 const OTP_TTL_SECONDS         = 5 * 60;
 const MAGIC_LINK_TTL_SECONDS  = 30 * 60;
 
+// Подсказка фронту, какой UX показать. Содержит "что показать", а не
+// "что произошло" — клиент не должен делать выводы вроде "user в БД есть".
+const HINTS = Object.freeze({
+    sms:        'check_sms_for_subscription_terms',
+    magic_link: 'check_your_email',
+    flash_call: 'enter_last_4_digits_of_incoming_call',
+});
+
 export async function handler(event, context, deps = {}) {
     const origin    = getOrigin(event);
     const requestId = context?.requestId ?? null;
@@ -80,9 +88,20 @@ export async function handler(event, context, deps = {}) {
 
         const hasVerifiedEmail = user.email != null && user.email_verified_at != null;
 
-        // 5. Развилка по каналу
-        let channel, hint;
-        if (hasVerifiedEmail) {
+        // 5. Развилка по каналу:
+        //   - !userExisted              → 'sms' (6 цифр, текст согласия на
+        //                                  рекуррентную подписку — юридическое
+        //                                  требование платёжных систем РФ)
+        //   - existing + verified email → 'magic_link' (экономим на SMS)
+        //   - existing без email        → 'flash_call' (4 цифры, экономим
+        //                                  на SMS — текстовое согласие здесь
+        //                                  не требуется, подписка уже оформлена)
+        let channel;
+        if (!userExisted)            channel = 'sms';
+        else if (hasVerifiedEmail)   channel = 'magic_link';
+        else                          channel = 'flash_call';
+
+        if (channel === 'magic_link') {
             // ─── Magic link branch ───────────────────────────────────────────
             const emailRate = await emailRateCheck({ user_id: user.id }, { pool });
             if (!emailRate.allowed) {
@@ -106,12 +125,10 @@ export async function handler(event, context, deps = {}) {
                 link: `https://gde-code.ru/auth/login-magic?token=${token}`,
                 phoneMask: maskPhone(phone),
             });
-
-            channel = 'magic_link';
-            hint    = 'check_your_email';
         } else {
-            // ─── Flash Call (OTP) branch ─────────────────────────────────────
-            channel = 'flash_call';
+            // ─── SMS (registration) или Flash Call (re-login) branch ─────────
+            // Длина кода определяется каналом: OTP_LENGTH['sms'] = 6,
+            // OTP_LENGTH['flash_call'] = 4.
             const code = generateOtpCode(OTP_LENGTH[channel]);
             const codeHash = hashOtpCode(code);
             const expiresAt = new Date(Date.now() + OTP_TTL_SECONDS * 1000);
@@ -123,10 +140,13 @@ export async function handler(event, context, deps = {}) {
                 [phone, codeHash, channel, expiresAt, ip],
             );
 
-            await sendOtpSms({ phone, code });
-
-            hint = 'enter_last_4_digits_of_incoming_call';
+            // channel передаём в провайдер, чтобы мок (а потом и реальный
+            // SMS.ru) знал, какой текст отправлять: с условиями подписки
+            // для 'sms', или короткий Flash Call.
+            await sendOtpSms({ phone, code, channel });
         }
+
+        const hint = HINTS[channel];
 
         console.log('[auth.start]', {
             request_id:    requestId,

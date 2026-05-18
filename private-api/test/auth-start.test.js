@@ -141,7 +141,7 @@ test('B7: 5 OTP на один phone за сутки → 6-й → 429 daily_limit
 // Группа C — Новый пользователь
 // =============================================================================
 
-test('C8: новый phone → user создаётся, channel=flash_call, 200', async () => {
+test('C8: новый phone → user создаётся, channel=sms (юридическое требование подписки), 200', async () => {
     setTestAuthSecrets();
     const pool = await newPgMemPool();
     const phone = '+79261111111';
@@ -149,8 +149,8 @@ test('C8: новый phone → user создаётся, channel=flash_call, 200'
     const { result: r } = await captureLogs(() => handler(makeEvent({ phone }), {}, { pool }));
     assert.equal(r.statusCode, 200);
     const body = parseBody(r);
-    assert.equal(body.channel, 'flash_call');
-    assert.equal(body.hint,    'enter_last_4_digits_of_incoming_call');
+    assert.equal(body.channel, 'sms');
+    assert.equal(body.hint,    'check_sms_for_subscription_terms');
 
     // user создан
     const u = await pool.query(
@@ -160,7 +160,7 @@ test('C8: новый phone → user создаётся, channel=flash_call, 200'
     resetTestAuthSecrets();
 });
 
-test('C9: новый phone → otp_code создан с channel=flash_call и 64-hex code_hash', async () => {
+test('C9: новый phone → otp_code создан с channel=sms (6 цифр) и 64-hex code_hash', async () => {
     setTestAuthSecrets();
     const pool = await newPgMemPool();
     await captureLogs(() => handler(makeEvent({ phone: '+79261111111' }), {}, { pool }));
@@ -169,7 +169,7 @@ test('C9: новый phone → otp_code создан с channel=flash_call и 64
         `SELECT channel, code_hash FROM private_data.otp_codes`,
     );
     assert.equal(rows.rows.length, 1);
-    assert.equal(rows.rows[0].channel, 'flash_call');
+    assert.equal(rows.rows[0].channel, 'sms');
     assert.match(rows.rows[0].code_hash, /^[0-9a-f]{64}$/);
     resetTestAuthSecrets();
 });
@@ -376,7 +376,8 @@ test('T2: нет sourceIp И нет X-Forwarded-For → ip=null, запрос о
     };
     const { result: r, logs } = await captureLogs(() => handler(event, {}, { pool }));
     assert.equal(r.statusCode, 200, `должен пройти, статус=${r.statusCode}`);
-    assert.equal(parseBody(r).channel, 'flash_call');
+    // Новый user → channel='sms' (юридическое требование подписки).
+    assert.equal(parseBody(r).channel, 'sms');
     // В логе ip_mask должен быть '***' (нет IP)
     assert.match(logs, /"ip_mask":"\*\*\*"/);
     resetTestAuthSecrets();
@@ -386,18 +387,51 @@ test('T2: нет sourceIp И нет X-Forwarded-For → ip=null, запрос о
 // Проверка, что HTTP-ответ не выдаёт существование/несуществование user
 // =============================================================================
 
-test('ответ для нового phone и для существующего без email — структурно одинаковый', async () => {
+// =============================================================================
+// C-new — Логика выбора channel для трёх состояний user
+// =============================================================================
+// ⚠️ Раньше тут был тест "ответ структурно идентичен для нового/существующего"
+// (защита от enumeration). После введения SMS-канала для новых user'ов
+// (юридическое требование рекуррентной подписки) channel ОТЛИЧАЕТСЯ:
+//   - новый user           → 'sms'
+//   - existing без email   → 'flash_call'
+//   - existing + verified  → 'magic_link'
+// Это сознательная жертва anti-enumeration защиты ради юридической чистоты
+// при оформлении подписки. Документируется этим тестом.
+
+test('C-new: выбор канала для трёх состояний user (sms / flash_call / magic_link)', async () => {
     setTestAuthSecrets();
-    const poolA = await newPgMemPool();
-    const poolB = await newPgMemPool();
-    await createTestUser(poolB, '+79261111111');
 
-    const newResult      = await captureLogs(() => handler(makeEvent({ phone: '+79261111111' }), {}, { pool: poolA }));
-    const existingResult = await captureLogs(() => handler(makeEvent({ phone: '+79261111111' }), {}, { pool: poolB }));
+    // (1) Новый user → channel='sms', 6 цифр
+    const poolNew = await newPgMemPool();
+    const rNew = await captureLogs(() => handler(makeEvent({ phone: '+79261111111' }), {}, { pool: poolNew }));
+    assert.equal(parseBody(rNew.result).channel, 'sms');
+    assert.equal(parseBody(rNew.result).hint,    'check_sms_for_subscription_terms');
+    const otpNew = await poolNew.query(`SELECT channel FROM private_data.otp_codes`);
+    assert.equal(otpNew.rows[0].channel, 'sms');
+    assert.match(otpNew.rows[0].channel, /^sms$/); // sanity
 
-    // Поля ответа идентичны — атакующий не различит «есть user или нет».
-    assert.equal(parseBody(newResult.result).channel,      parseBody(existingResult.result).channel);
-    assert.equal(parseBody(newResult.result).hint,         parseBody(existingResult.result).hint);
-    assert.equal(newResult.result.statusCode,              existingResult.result.statusCode);
+    // (2) Existing user без email → channel='flash_call', 4 цифры
+    const poolExisting = await newPgMemPool();
+    await createTestUser(poolExisting, '+79262222222');
+    const rExisting = await captureLogs(() => handler(makeEvent({ phone: '+79262222222' }), {}, { pool: poolExisting }));
+    assert.equal(parseBody(rExisting.result).channel, 'flash_call');
+    assert.equal(parseBody(rExisting.result).hint,    'enter_last_4_digits_of_incoming_call');
+    const otpExisting = await poolExisting.query(`SELECT channel FROM private_data.otp_codes`);
+    assert.equal(otpExisting.rows[0].channel, 'flash_call');
+
+    // (3) Existing user с verified email → channel='magic_link', никакого OTP
+    const poolVerified = await newPgMemPool();
+    const { user_id: vId } = await createTestUser(poolVerified, '+79263333333');
+    const { markUserEmailVerified } = await import('./helpers.js');
+    await markUserEmailVerified(poolVerified, vId, 'verified@example.com');
+    const rVerified = await captureLogs(() => handler(makeEvent({ phone: '+79263333333' }), {}, { pool: poolVerified }));
+    assert.equal(parseBody(rVerified.result).channel, 'magic_link');
+    assert.equal(parseBody(rVerified.result).hint,    'check_your_email');
+    const otpVerified = await poolVerified.query(`SELECT count(*)::int AS c FROM private_data.otp_codes`);
+    assert.equal(otpVerified.rows[0].c, 0, 'для magic_link ветки OTP не создаётся');
+    const mlVerified = await poolVerified.query(`SELECT count(*)::int AS c FROM private_data.magic_link_tokens`);
+    assert.equal(mlVerified.rows[0].c, 1);
+
     resetTestAuthSecrets();
 });
