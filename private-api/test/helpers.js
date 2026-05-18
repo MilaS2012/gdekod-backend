@@ -255,6 +255,68 @@ export async function createTestSubscription(pool, user_id, opts = {}) {
     return rows[0];
 }
 
+/**
+ * Создаёт магазин в public_data.merchants для тестов промокодов.
+ * Возвращает { id, name, domain, ... }.
+ */
+export async function createTestMerchant(pool, opts = {}) {
+    const {
+        name     = 'Test Merchant',
+        domain   = `test-merchant-${randomUUID().slice(0, 8)}.example`,
+        category = 'other',
+        logo_url = null,
+    } = opts;
+    const { rows } = await pool.query(
+        `INSERT INTO public_data.merchants (name, domain, category, logo_url, is_active)
+         VALUES ($1, $2, $3, $4, true)
+         RETURNING id, name, domain, category, logo_url`,
+        [name, domain, category, logo_url],
+    );
+    return rows[0];
+}
+
+/**
+ * Создаёт промокод в public_data.coupons. Если merchant_id не передан —
+ * создаёт нового merchant.
+ *
+ * opts:
+ *   - merchant_id: BIGINT
+ *   - description: string (default 'Test coupon')
+ *   - discount:    string (default '-10%')
+ *   - code:        string (default 'TEST10')
+ *   - status:      'active' (default) | 'expired' | ...
+ *   - expires_at:  Date | null (default +30 дней)
+ *   - confirmed_count / complaint_count: int (default 0)
+ *
+ * Возвращает { id, code, status, merchant_id, ... }.
+ */
+export async function createTestCoupon(pool, opts = {}) {
+    let merchant_id = opts.merchant_id;
+    if (merchant_id == null) {
+        merchant_id = (await createTestMerchant(pool)).id;
+    }
+    const {
+        description = 'Test coupon',
+        discount    = '-10%',
+        code        = 'TEST10',
+        status      = 'active',
+        expires_at  = new Date(Date.now() + 30 * 24 * 3600 * 1000),
+        confirmed_count = 0,
+        complaint_count = 0,
+    } = opts;
+    const { rows } = await pool.query(
+        `INSERT INTO public_data.coupons
+           (merchant_id, description, discount, code, status,
+            expires_at, confirmed_count, complaint_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, merchant_id, description, discount, code, status,
+                   expires_at, confirmed_count, complaint_count`,
+        [merchant_id, description, discount, code, status,
+         expires_at, confirmed_count, complaint_count],
+    );
+    return rows[0];
+}
+
 /** Помечает email пользователя как привязанный, но НЕ verified. */
 export async function attachUnverifiedEmail(pool, user_id, email) {
     await pool.query(

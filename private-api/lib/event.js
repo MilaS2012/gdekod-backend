@@ -47,6 +47,22 @@ export function userAgentHash(ua) {
 }
 
 /**
+ * Парсит coupon_id из path параметров. API Gateway пробрасывает
+ * `/api/coupons/{id}/...` как event.pathParameters.id. Возвращает число
+ * или null если параметр отсутствует/невалиден.
+ *
+ * coupon_id у нас BIGSERIAL (public_data.coupons.id), но JS Number
+ * корректно обрабатывает до 2^53 — это далеко за горизонтом MVP.
+ */
+export function parseCouponId(event) {
+    const raw = event?.pathParameters?.id ?? event?.pathParameters?.coupon_id;
+    if (raw == null) return null;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) return null;
+    return n;
+}
+
+/**
  * Парсит UA в человекочитаемую метку для UI ("Chrome 120 on macOS").
  * Кладётся в auth_sessions.user_agent_summary (VARCHAR(100)).
  *

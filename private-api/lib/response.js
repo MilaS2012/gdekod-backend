@@ -44,11 +44,18 @@ export function unauthorized(message = 'Unauthorized', { origin = null } = {}) {
     };
 }
 
-export function forbidden(message = 'Forbidden', { origin = null } = {}) {
+/**
+ * 403 Forbidden. Принимает либо строку, либо объект `{ error, ...details }`
+ * (например, для `subscription_required` + `redirect_to`).
+ */
+export function forbidden(errorOrObject = 'Forbidden', { origin = null } = {}) {
+    const body = typeof errorOrObject === 'string'
+        ? { error: errorOrObject }
+        : errorOrObject;
     return {
         statusCode: 403,
         headers: baseHeaders(origin),
-        body: JSON.stringify({ error: message }),
+        body: JSON.stringify(body),
     };
 }
 
@@ -87,24 +94,34 @@ export function conflict(errorOrObject = 'Conflict', { origin = null } = {}) {
 }
 
 // 410 Gone — ссылка/токен истёк или уже использован. Применяется для
-// email-verify и magic-link, чтобы отличить от 404 «не существовал никогда».
-export function gone(message = 'Gone', { origin = null } = {}) {
+// email-verify, magic-link, coupon_not_active. Принимает строку или объект.
+export function gone(errorOrObject = 'Gone', { origin = null } = {}) {
+    const body = typeof errorOrObject === 'string'
+        ? { error: errorOrObject }
+        : errorOrObject;
     return {
         statusCode: 410,
         headers: baseHeaders(origin),
-        body: JSON.stringify({ error: message }),
+        body: JSON.stringify(body),
     };
 }
 
 // 429 Too Many Requests — анти-спам лимиты. По возможности возвращаем
 // Retry-After в секундах, чтобы фронт мог показать таймер.
-export function tooManyRequests(message = 'Too many requests', { origin = null, retryAfterSeconds = null } = {}) {
+// Принимает строку (тогда тело = { error, retry_after_seconds }) или
+// объект `{ error, ...details }` (тело = объект как есть + retry_after_seconds
+// если передан в opts).
+export function tooManyRequests(errorOrObject = 'Too many requests', { origin = null, retryAfterSeconds = null } = {}) {
     const headers = { ...baseHeaders(origin) };
     if (retryAfterSeconds != null) headers['Retry-After'] = String(retryAfterSeconds);
+    const body = typeof errorOrObject === 'string'
+        ? { error: errorOrObject, retry_after_seconds: retryAfterSeconds }
+        : { ...errorOrObject,
+            ...(retryAfterSeconds != null ? { retry_after_seconds: retryAfterSeconds } : {}) };
     return {
         statusCode: 429,
         headers,
-        body: JSON.stringify({ error: message, retry_after_seconds: retryAfterSeconds }),
+        body: JSON.stringify(body),
     };
 }
 
