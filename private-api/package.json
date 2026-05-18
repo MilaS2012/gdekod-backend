@@ -13,6 +13,7 @@
         "lint": "echo 'lint not configured yet' && exit 0"
     },
     "dependencies": {
+        "jose": "^6.2.3",
         "pg": "^8.13.0"
     },
     "devDependencies": {

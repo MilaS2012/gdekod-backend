@@ -22,8 +22,9 @@ import {
 import { maskPhone, maskEmail, maskToken } from '../lib/mask-pii.js';
 import { sendOtpSms } from '../lib/sms-provider.js';
 import { sendEmailVerify, sendMagicLink } from '../lib/email-provider.js';
-import { extractBearerToken, requireUser } from '../lib/auth.js';
-import { signJwt, verifyJwt, JwtError } from '../lib/jwt.js';
+import { extractBearerToken } from '../lib/auth.js';
+// requireUser — полные тесты в test/auth.test.js (6.3.2)
+// lib/jwt.js — отдельный test/jwt.test.js (полная реализация в 6.3.1).
 
 import { handler as healthHandler } from '../handlers/health.js';
 
@@ -296,20 +297,7 @@ test('auth: extractBearerToken — case-insensitive header, парсит "Bearer
     assert.equal(extractBearerToken({}),              null);
 });
 
-test('auth: requireUser — заглушка возвращает 401 (этап 6.1)', async () => {
-    const r = await requireUser({ headers: { authorization: 'Bearer x' } });
-    assert.ok(r.error);
-    assert.equal(r.error.statusCode, 401);
-});
-
-// -----------------------------------------------------------------------------
-// lib/jwt.js (заглушка)
-// -----------------------------------------------------------------------------
-
-test('jwt: signJwt/verifyJwt бросают JwtError(not_implemented) на 6.1', () => {
-    assert.throws(() => signJwt({ userId: '1', sessionId: '2' }), JwtError);
-    assert.throws(() => verifyJwt('any.token.here'),               JwtError);
-});
+// requireUser — см. test/auth.test.js (полная реализация в 6.3.2).
 
 // -----------------------------------------------------------------------------
 // handlers/health.js

@@ -1,30 +1,50 @@
 // =============================================================================
-// auth.js — извлечение и проверка пользователя из запроса.
+// auth.js — извлечение и проверка авторизованного пользователя из запроса.
 //
-// ★ ЗАГЛУШКА для этапа 6.1 (каркас).
-//   Полная реализация — в этапе 6.3 после согласования JWT-библиотеки.
+// Точка входа для handler'ов: requireUser(event).
 //
-// Контракт (для использования в handler'ах):
+// Что делает:
+//   1. Достаёт Bearer-токен из Authorization header.
+//   2. Валидирует JWT (lib/jwt.js verifyJwt — pin на HS256, exp, signature).
+//   3. Атомарным UPDATE ... RETURNING проверяет сессию в auth_sessions:
+//      жива (revoked_at IS NULL AND expires_at > now()) и одновременно
+//      обновляет last_used_at = now(). Один round-trip к БД, без race.
+//   4. Проверяет, что sub из JWT совпадает с user_id сессии в БД
+//      (защита от склейки JWT одного юзера с session_id другого).
+//   5. Возвращает { user_id, session_id }.
 //
-//   const auth = await requireUser(event);
-//   if (auth.error) return auth.error;   // готовый HTTP-response (401)
-//   const { userId, sessionId } = auth;
+// Все негативные сценарии — типизированный AuthError. Handler ловит,
+// маппит на 401 unauthorized() и пишет в лог код + (для отладки)
+// маскированный session_id.
 //
-// Извлекает Bearer-токен из заголовка Authorization, валидирует JWT
-// (lib/jwt.js), проверяет, что сессия не отозвана (auth_sessions),
-// и возвращает либо { userId, sessionId }, либо { error: response401 }.
-//
-// Логи — только user_id и абстрактные коды причин. Сам токен в лог
-// попадает только через maskToken() и только если это нужно для дебага.
+// ★ Различение "сессия не найдена / отозвана / истекла" в HTTP-ответе
+//   намеренно НЕ делается — это дало бы атакующему вектор разведки
+//   (отозвана = юзер сменил пароль, истекла = давно не заходил и т.д.).
+//   Для нашего лога различение можно делать отдельным запросом, но в
+//   проде по hot path этого не делаем — лишний round-trip.
 // =============================================================================
 
-import { unauthorized } from './response.js';
-// import { verifyJwt, JwtError } from './jwt.js';  // (этап 6.3)
-// import { getPool } from './db.js';                // (этап 6.3)
-// import { maskToken } from './mask-pii.js';        // (этап 6.3)
+import { getPool } from './db.js';
+import { verifyJwt, JwtError } from './jwt.js';
+import { maskToken } from './mask-pii.js';
+
+export class AuthError extends Error {
+    /**
+     * @param {'no_token'|'malformed_token'|'jwt_invalid'|'session_invalid'|'session_mismatch'} code
+     * @param {string} message
+     * @param {{ cause?: string }} [opts] — подкод (например, expired/invalid/malformed для jwt_invalid)
+     */
+    constructor(code, message, { cause } = {}) {
+        super(message);
+        this.name = 'AuthError';
+        this.code = code;
+        if (cause) this.cause = cause;
+    }
+}
 
 /**
- * Достаёт Bearer-токен из заголовка Authorization (case-insensitive).
+ * Достаёт Bearer-токен из заголовка Authorization (case-insensitive имя
+ * заголовка, case-sensitive scheme — RFC 6750 даёт обе формы).
  * Возвращает строку или null.
  */
 export function extractBearerToken(event) {
@@ -36,22 +56,90 @@ export function extractBearerToken(event) {
 }
 
 /**
- * Главный middleware-стайл хелпер.
+ * Главный middleware-style хелпер.
  *
- * TODO(6.3):
- *   1. extractBearerToken → если нет → unauthorized()
- *   2. verifyJwt(token) → { userId, sessionId }, ловить JwtError
- *   3. SELECT 1 FROM private_data.auth_sessions
- *      WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
- *      → если нет — unauthorized() (сессия отозвана через logout-all)
- *   4. Обновить last_seen_at у сессии (опц., можно не на каждом запросе)
- *   5. Вернуть { userId, sessionId }
- *
- * Возвращает либо { userId, sessionId } при успехе,
- * либо { error: <http-response 401> } при ошибке.
+ * @param {object} event — Yandex Cloud Functions event
+ * @param {{ pool?: object }} [deps] — инъекция pool для тестов (по умолчанию getPool())
+ * @returns {Promise<{ user_id: string, session_id: string }>}
+ * @throws {AuthError}
  */
-// eslint-disable-next-line no-unused-vars
-export async function requireUser(event) {
-    // На 6.1 — короткая 401. Реальная логика — в 6.3.
-    return { error: unauthorized('Auth не реализован (этап 6.1, заглушка)') };
+export async function requireUser(event, deps = {}) {
+    const pool = deps.pool ?? getPool();
+
+    // ─── 1. Парсинг Authorization header ──────────────────────────────────────
+    const rawAuth = event?.headers?.authorization ?? event?.headers?.Authorization;
+    if (rawAuth == null || rawAuth === '') {
+        throw new AuthError('no_token', 'Authorization header отсутствует');
+    }
+    if (typeof rawAuth !== 'string' || !/^Bearer\s+/.test(rawAuth)) {
+        // Wrong scheme (Basic, Digest, etc.) — это malformed, не no_token.
+        throw new AuthError('malformed_token', 'Ожидается "Bearer <token>"');
+    }
+    const token = extractBearerToken(event);
+    if (!token) {
+        throw new AuthError('malformed_token', 'Bearer без токена');
+    }
+
+    // ─── 2. JWT-валидация ─────────────────────────────────────────────────────
+    let jwtPayload;
+    try {
+        jwtPayload = await verifyJwt(token);
+    } catch (e) {
+        if (e instanceof JwtError) {
+            // Подкод (e.code) — для нашего лога. В HTTP-ответе всё равно 401.
+            throw new AuthError('jwt_invalid', 'JWT не прошёл проверку', { cause: e.code });
+        }
+        throw e;
+    }
+    const userIdFromJwt = jwtPayload.sub;
+    const sessionId     = jwtPayload.sid;
+
+    // ─── 3. Атомарный UPDATE ... RETURNING сессии ─────────────────────────────
+    // Условия в WHERE — это И проверка валидности, И защита от race с
+    // logout-all (если revoked_at успели поставить параллельно).
+    const { rows } = await pool.query(
+        `UPDATE private_data.auth_sessions
+         SET last_used_at = now()
+         WHERE session_id = $1
+           AND revoked_at IS NULL
+           AND expires_at > now()
+         RETURNING user_id`,
+        [sessionId],
+    );
+
+    if (rows.length === 0) {
+        // Различение "нет / отозвана / истекла" в HTTP-ответе мы намеренно
+        // не делаем — это разведка для атакующего (отозвана = юзер сменил
+        // пароль, истекла = давно не заходил). Но в ЛОГЕ различаем, чтобы
+        // отличать нормальный churn от попыток подбора JWT.
+        //
+        // Это плохой путь (≤1% запросов), доп. SELECT здесь окей.
+        const { rows: details } = await pool.query(
+            `SELECT (revoked_at IS NOT NULL) AS revoked,
+                    (expires_at < now())     AS expired
+               FROM private_data.auth_sessions
+              WHERE session_id = $1`,
+            [sessionId],
+        );
+
+        let cause;
+        if (details.length === 0)         cause = 'session_not_found';
+        else if (details[0].revoked)      cause = 'session_revoked';
+        else if (details[0].expired)      cause = 'session_expired';
+        else                              cause = 'session_invalid_unknown';   // ← маркер бага
+
+        console.warn('[auth] session_invalid', {
+            sid: maskToken(sessionId),
+            cause,
+        });
+        throw new AuthError('session_invalid', 'Сессия недействительна', { cause });
+    }
+
+    // ─── 4. Защита от подмены: sub в JWT vs user_id в БД ──────────────────────
+    if (rows[0].user_id !== userIdFromJwt) {
+        console.warn('[auth] session_mismatch', { sid: maskToken(sessionId) });
+        throw new AuthError('session_mismatch', 'sub из JWT не совпадает с user_id сессии');
+    }
+
+    return { user_id: rows[0].user_id, session_id: sessionId };
 }
