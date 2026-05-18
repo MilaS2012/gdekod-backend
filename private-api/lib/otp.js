@@ -6,23 +6,40 @@
 // 64 hex-символа. Сравнение при /auth/verify — constant-time.
 //
 // Решение по криптографии: один общий OTP_HMAC_SECRET в env (Yandex Lockbox).
-// Per-row salt не используется — для 6-значного OTP с TTL 5 минут и
+// Per-row salt не используется — для 4-6-значного OTP с TTL 5 минут и
 // attempts_count ≤ 5 он не даёт практической пользы (онлайн-атака невозможна,
 // offline-brute уже защищён HMAC + секретом).
 // =============================================================================
 
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 
-const CODE_LENGTH = 6;
 const HMAC_HEX_LENGTH = 64;
 
 /**
- * Генерирует криптографически случайный 6-значный код с сохранением ведущих нулей.
- * Использует randomInt (CSPRNG), не Math.random.
+ * Длина OTP-кода для каждого канала.
+ * - flash_call/voice: 4 цифры (последние цифры номера-звонящего)
+ * - sms: 6 цифр (классический формат)
+ * Канал → длина — единая точка истины, чтобы не разбрасывать
+ * магические числа по handler'ам.
  */
-export function generateOtpCode() {
-    const n = randomInt(0, 10 ** CODE_LENGTH);
-    return String(n).padStart(CODE_LENGTH, '0');
+export const OTP_LENGTH = Object.freeze({
+    flash_call: 4,
+    voice:      4,
+    sms:        6,
+});
+
+/**
+ * Генерирует криптографически случайный код заданной длины с сохранением
+ * ведущих нулей. Использует randomInt (CSPRNG), не Math.random.
+ *
+ * @param {number} length — 4..6 цифр (см. OTP_LENGTH)
+ */
+export function generateOtpCode(length) {
+    if (!Number.isInteger(length) || length < 4 || length > 6) {
+        throw new Error('generateOtpCode: length must be 4..6');
+    }
+    const n = randomInt(0, 10 ** length);
+    return String(n).padStart(length, '0');
 }
 
 /**
@@ -40,8 +57,8 @@ export function hashOtpCode(code) {
 
 /**
  * Constant-time сравнение хеша из БД с хешем введённого кода.
- * Используется в /auth/verify (6.3.5) — критично для защиты от
- * timing-атак на угадывание кода.
+ * Используется в /auth/verify — критично для защиты от timing-атак
+ * на угадывание кода.
  */
 export function verifyOtpCode(plainCode, storedHash) {
     if (typeof storedHash !== 'string' || storedHash.length !== HMAC_HEX_LENGTH) {

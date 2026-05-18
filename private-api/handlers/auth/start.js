@@ -19,11 +19,12 @@ import {
     corsPreflight, parseJsonBody, getOrigin,
 } from '../../lib/response.js';
 import { smsRateCheck, emailRateCheck } from '../../lib/rate-limit.js';
-import { generateOtpCode, hashOtpCode } from '../../lib/otp.js';
+import { generateOtpCode, hashOtpCode, OTP_LENGTH } from '../../lib/otp.js';
 import { generateMagicLinkToken } from '../../lib/magic-link.js';
 import { sendOtpSms } from '../../lib/sms-provider.js';
 import { sendMagicLink } from '../../lib/email-provider.js';
 import { maskPhone, maskIp } from '../../lib/mask-pii.js';
+import { extractIp } from '../../lib/event.js';
 
 const PHONE_RE = /^\+\d{10,15}$/;
 const OTP_TTL_SECONDS         = 5 * 60;
@@ -110,7 +111,8 @@ export async function handler(event, context, deps = {}) {
             hint    = 'check_your_email';
         } else {
             // ─── Flash Call (OTP) branch ─────────────────────────────────────
-            const code = generateOtpCode();
+            channel = 'flash_call';
+            const code = generateOtpCode(OTP_LENGTH[channel]);
             const codeHash = hashOtpCode(code);
             const expiresAt = new Date(Date.now() + OTP_TTL_SECONDS * 1000);
 
@@ -118,13 +120,12 @@ export async function handler(event, context, deps = {}) {
                 `INSERT INTO private_data.otp_codes
                    (phone, code_hash, channel, expires_at, ip_address)
                  VALUES ($1, $2, $3, $4, $5)`,
-                [phone, codeHash, 'flash_call', expiresAt, ip],
+                [phone, codeHash, channel, expiresAt, ip],
             );
 
             await sendOtpSms({ phone, code });
 
-            channel = 'flash_call';
-            hint    = 'enter_last_4_digits_of_incoming_call';
+            hint = 'enter_last_4_digits_of_incoming_call';
         }
 
         console.log('[auth.start]', {
@@ -142,18 +143,3 @@ export async function handler(event, context, deps = {}) {
     }
 }
 
-/**
- * Извлекает source IP из event. В Yandex Cloud Functions через API Gateway
- * приходит как event.requestContext.identity.sourceIp. Также пробуем
- * X-Forwarded-For (первый из списка) как fallback.
- */
-function extractIp(event) {
-    const ctx = event?.requestContext?.identity?.sourceIp;
-    if (typeof ctx === 'string' && ctx.length > 0) return ctx;
-
-    const xff = event?.headers?.['x-forwarded-for'] ?? event?.headers?.['X-Forwarded-For'];
-    if (typeof xff === 'string' && xff.length > 0) {
-        return xff.split(',')[0].trim();
-    }
-    return null;
-}

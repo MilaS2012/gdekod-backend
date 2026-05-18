@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { newDb, DataType } from 'pg-mem';
 
 import { signJwt } from '../lib/jwt.js';
+import { hashOtpCode } from '../lib/otp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
@@ -212,4 +213,39 @@ export async function attachUnverifiedEmail(pool, user_id, email) {
           WHERE id = $1`,
         [user_id, email],
     );
+}
+
+/**
+ * Создаёт активный OTP-код в БД для тестов /auth/verify.
+ *
+ * Перед вызовом требуется setTestAuthSecrets() — hashOtpCode читает
+ * OTP_HMAC_SECRET из env.
+ *
+ * opts:
+ *   - code:           string (default '1234' для flash_call)
+ *   - channel:        'flash_call' | 'voice' | 'sms' (default 'flash_call')
+ *   - expired:        boolean (default false) — expires_at в прошлом
+ *   - used:           boolean (default false) — пометить used_at = now()
+ *   - attempts:       number (default 0)
+ *   - ip:             string | null (default null)
+ *
+ * Возвращает { id, code, code_hash, expires_at }.
+ */
+export async function createTestOtp(pool, { phone, code = '1234', channel = 'flash_call',
+                                            expired = false, used = false,
+                                            attempts = 0, ip = null } = {}) {
+    const codeHash = hashOtpCode(code);
+    const expiresAt = expired
+        ? new Date(Date.now() - 60 * 1000)
+        : new Date(Date.now() + 5 * 60 * 1000);
+    const usedAt = used ? new Date() : null;
+
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.otp_codes
+           (phone, code_hash, channel, expires_at, used_at, attempts_count, ip_address)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, code_hash, expires_at`,
+        [phone, codeHash, channel, expiresAt, usedAt, attempts, ip],
+    );
+    return { id: rows[0].id, code, code_hash: rows[0].code_hash, expires_at: rows[0].expires_at };
 }

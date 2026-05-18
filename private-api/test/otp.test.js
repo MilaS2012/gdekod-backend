@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { generateOtpCode, hashOtpCode, verifyOtpCode } from '../lib/otp.js';
+import { generateOtpCode, hashOtpCode, verifyOtpCode, OTP_LENGTH } from '../lib/otp.js';
 
 const OTP_SECRET = 'otp-hmac-test-secret-min-32-bytes-XXXX';
 
@@ -16,15 +16,39 @@ function resetEnv() { delete process.env.OTP_HMAC_SECRET; }
 // generateOtpCode
 // -----------------------------------------------------------------------------
 
-test('generateOtpCode: всегда 6 цифр, включая ведущие нули', () => {
+test('generateOtpCode(4): ровно 4 цифры, включая ведущие нули', () => {
     const seen = new Set();
     for (let i = 0; i < 200; i++) {
-        const c = generateOtpCode();
-        assert.match(c, /^\d{6}$/);
+        const c = generateOtpCode(4);
+        assert.match(c, /^\d{4}$/);
         seen.add(c);
     }
-    // 200 кодов с шансом совпадения ~ 200*199/2/1e6 ≈ 2%, обычно набирается ≥190 уникальных
-    assert.ok(seen.size > 150, `мало уникальности: ${seen.size}/200`);
+    // 200 кодов из 10_000 → большой спред, шанс совпадений есть, но >100 уникальных гарантированно.
+    assert.ok(seen.size > 100, `мало уникальности: ${seen.size}/200`);
+});
+
+test('generateOtpCode(6): ровно 6 цифр', () => {
+    for (let i = 0; i < 50; i++) {
+        assert.match(generateOtpCode(6), /^\d{6}$/);
+    }
+});
+
+test('generateOtpCode: невалидная длина → throws', () => {
+    assert.throws(() => generateOtpCode(3),   /4\.\.6/);
+    assert.throws(() => generateOtpCode(7),   /4\.\.6/);
+    assert.throws(() => generateOtpCode(0),   /4\.\.6/);
+    assert.throws(() => generateOtpCode(-1),  /4\.\.6/);
+    assert.throws(() => generateOtpCode('4'), /4\.\.6/);
+    assert.throws(() => generateOtpCode(4.5), /4\.\.6/);
+    assert.throws(() => generateOtpCode(),    /4\.\.6/);
+});
+
+test('OTP_LENGTH: маппинг каналов', () => {
+    assert.equal(OTP_LENGTH.flash_call, 4);
+    assert.equal(OTP_LENGTH.voice,      4);
+    assert.equal(OTP_LENGTH.sms,        6);
+    // frozen
+    assert.throws(() => { OTP_LENGTH.flash_call = 99; }, TypeError);
 });
 
 // -----------------------------------------------------------------------------
