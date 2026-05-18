@@ -17,6 +17,7 @@ import { newDb, DataType } from 'pg-mem';
 
 import { signJwt } from '../lib/jwt.js';
 import { hashOtpCode } from '../lib/otp.js';
+import { generateMagicLinkToken } from '../lib/magic-link.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
@@ -213,6 +214,36 @@ export async function attachUnverifiedEmail(pool, user_id, email) {
           WHERE id = $1`,
         [user_id, email],
     );
+}
+
+/**
+ * Создаёт magic-link токен в БД для тестов /auth/login-magic.
+ *
+ * opts:
+ *   - token:    string (default — свежий generateMagicLinkToken)
+ *   - expired:  boolean (default false)
+ *   - used:     boolean (default false)
+ *   - ip:       string | null (default null)
+ *
+ * Возвращает { token, user_id, expires_at }.
+ */
+export async function createTestMagicLinkToken(pool, { user_id, token = null,
+                                                       expired = false, used = false,
+                                                       ip = null } = {}) {
+    const t = token ?? generateMagicLinkToken();
+    const expiresAt = expired
+        ? new Date(Date.now() - 60 * 1000)
+        : new Date(Date.now() + 30 * 60 * 1000);
+    const usedAt = used ? new Date() : null;
+
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.magic_link_tokens
+           (token, user_id, expires_at, used_at, ip_address)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING token, user_id, expires_at`,
+        [t, user_id, expiresAt, usedAt, ip],
+    );
+    return { token: rows[0].token, user_id: rows[0].user_id, expires_at: rows[0].expires_at };
 }
 
 /**
