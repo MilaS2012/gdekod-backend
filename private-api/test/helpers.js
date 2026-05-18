@@ -43,6 +43,19 @@ export async function newPgMemPool() {
         implementation: () => randomUUID(),
         impure: true,
     });
+    // split_part(str, delim, n) — встроенная функция PostgreSQL, отсутствует
+    // в pg-mem. Используется в public-api/handlers/ и в наших парсер-handler'ах
+    // для slug из domain: split_part('wb.ru', '.', 1) → 'wb'.
+    db.public.registerFunction({
+        name: 'split_part',
+        args: [DataType.text, DataType.text, DataType.integer],
+        returns: DataType.text,
+        implementation: (str, delim, n) => {
+            if (typeof str !== 'string') return '';
+            const parts = str.split(delim);
+            return parts[n - 1] ?? '';
+        },
+    });
     db.registerExtension('pgcrypto', () => {});
 
     const files = (await fs.readdir(MIGRATIONS_DIR))
@@ -71,6 +84,16 @@ export async function newPgMemPool() {
     //   SELECT WHERE user_id=$1 без фильтра по status находит 0 rows для
     //   pending/cancelled подписок. На реальном PG этого нет.
     db.public.none('DROP INDEX private_data.idx_subs_one_active_per_user');
+
+    // ★ И для public_data partial индексов:
+    //   - idx_coupons_status_checked (миграция 001) WHERE status='active'
+    //   - idx_coupons_tier_lastcheck  (миграция 012) WHERE status='active'
+    //   - idx_coupons_urgent          (миграция 012) WHERE status='active' AND complaint_count >= 3
+    // На реальном PG они ускоряют выборку парсера; в pg-mem ломают планировщик
+    // (SELECT с другим WHERE возвращает не те строки, см. helpers/REAL_PG_CHECKLIST).
+    db.public.none('DROP INDEX public_data.idx_coupons_status_checked');
+    db.public.none('DROP INDEX public_data.idx_coupons_tier_lastcheck');
+    db.public.none('DROP INDEX public_data.idx_coupons_urgent');
 
     const { Pool } = db.adapters.createPg();
     return new Pool();
