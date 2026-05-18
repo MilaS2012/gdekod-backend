@@ -66,6 +66,12 @@ cd parser && npm test
 cd parser && npm run start    # локальный прогон scheduler'а
 ```
 
+### Известные ограничения тестов миграций
+
+Тесты миграций (`private-api/test/migrations.test.js`) используют **pg-mem** (in-memory PostgreSQL), у которого есть ограничения по plpgsql, AST-coverage check и некоторым DROP-операциям. Подробности — в шапке [`private-api/test/migrations.test.js`](private-api/test/migrations.test.js).
+
+Семь моментов тестируются только на реальном Postgres в этапе 6.10 — см. чек-лист в [`migrations/REAL_PG_CHECKLIST.md`](migrations/REAL_PG_CHECKLIST.md). PostgreSQL поддерживает все используемые конструкции нативно — ограничения только у pg-mem, не у production-SQL.
+
 ## Этапы по ТЗ v15
 
 Верхнеуровневый трекинг по проекту в целом (не только этот репо).
