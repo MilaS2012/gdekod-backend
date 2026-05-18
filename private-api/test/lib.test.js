@@ -19,7 +19,7 @@ import {
     methodNotAllowed, conflict, gone, tooManyRequests, serverError,
     corsPreflight, parseJsonBody, getOrigin, toIso,
 } from '../lib/response.js';
-import { maskPhone, maskEmail, maskToken } from '../lib/mask-pii.js';
+import { maskPhone, maskEmail, maskToken, maskIp } from '../lib/mask-pii.js';
 import { sendOtpSms } from '../lib/sms-provider.js';
 import { sendEmailVerify, sendMagicLink } from '../lib/email-provider.js';
 import { extractBearerToken } from '../lib/auth.js';
@@ -207,6 +207,25 @@ test('mask-pii: maskToken — head...tail для длинных, *** для ко
     assert.equal(maskToken('short'),  '***');
     assert.equal(maskToken(''),       '***');
     assert.equal(maskToken(null),     '***');
+});
+
+test('mask-pii: maskIp — IPv4 показывает первые 2 октета', () => {
+    assert.equal(maskIp('192.168.1.42'), '192.168.x.x');
+    assert.equal(maskIp('10.0.0.1'),     '10.0.x.x');
+});
+
+test('mask-pii: maskIp — IPv6 показывает первые 2 группы', () => {
+    assert.equal(maskIp('2001:db8::1'),         '2001:db8:...');
+    assert.equal(maskIp('fe80::1ff:fe23:4567'), 'fe80::...');
+});
+
+test('mask-pii: maskIp — невалидное → ***', () => {
+    assert.equal(maskIp(''),             '***');
+    assert.equal(maskIp(null),           '***');
+    assert.equal(maskIp(undefined),      '***');
+    assert.equal(maskIp(123),            '***');
+    assert.equal(maskIp('not-an-ip'),    '***');
+    assert.equal(maskIp('1.2.3'),        '***'); // не 4 октета
 });
 
 // -----------------------------------------------------------------------------

@@ -172,7 +172,8 @@ export async function insertUsedMagicLink(pool, { user_id, createdAtOffsetSecond
  * выставляет env в одно и то же значение — JWT, подписанные в разных
  * тестах, можно проверять одним секретом.
  */
-export const TEST_JWT_SECRET = 'test-jwt-secret-min-32-bytes-AAAAAAAA';
+export const TEST_JWT_SECRET      = 'test-jwt-secret-min-32-bytes-AAAAAAAA';
+export const TEST_OTP_HMAC_SECRET = 'test-otp-hmac-secret-min-32-bytes-AAAA';
 
 export function setTestJwtSecret() {
     process.env.JWT_SECRET = TEST_JWT_SECRET;
@@ -181,4 +182,34 @@ export function setTestJwtSecret() {
 export function resetTestJwtSecret() {
     delete process.env.JWT_SECRET;
     delete process.env.JWT_TTL_SECONDS;
+}
+
+/** Выставляет ВСЕ секреты, нужные auth-handler'у. */
+export function setTestAuthSecrets() {
+    setTestJwtSecret();
+    process.env.OTP_HMAC_SECRET = TEST_OTP_HMAC_SECRET;
+}
+export function resetTestAuthSecrets() {
+    resetTestJwtSecret();
+    delete process.env.OTP_HMAC_SECRET;
+}
+
+/** Помечает email пользователя как verified (для тестов magic-link ветки). */
+export async function markUserEmailVerified(pool, user_id, email) {
+    await pool.query(
+        `UPDATE private_data.users
+            SET email = $2, email_verified_at = now()
+          WHERE id = $1`,
+        [user_id, email],
+    );
+}
+
+/** Помечает email пользователя как привязанный, но НЕ verified. */
+export async function attachUnverifiedEmail(pool, user_id, email) {
+    await pool.query(
+        `UPDATE private_data.users
+            SET email = $2, email_verified_at = NULL
+          WHERE id = $1`,
+        [user_id, email],
+    );
 }

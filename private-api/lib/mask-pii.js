@@ -58,3 +58,29 @@ export function maskToken(token) {
     if (typeof token !== 'string' || token.length < 12) return '***';
     return `${token.slice(0, 4)}...${token.slice(-4)}`;
 }
+
+/**
+ * Маскирует IP-адрес для логов. По 152-ФЗ IP — это ПД, в логи только
+ * частично. Сохраняем достаточно для group-by по подсети (для grep'а),
+ * но не для идентификации конкретного устройства.
+ *
+ *   IPv4 '192.168.1.42'   → '192.168.x.x'
+ *   IPv6 '2001:db8::1'    → '2001:db8:...'
+ *   null / нечитаемое     → '***'
+ */
+export function maskIp(ip) {
+    if (typeof ip !== 'string' || ip.length === 0) return '***';
+    if (ip.includes('.') && !ip.includes(':')) {
+        const parts = ip.split('.');
+        if (parts.length === 4 && parts.every(p => /^\d{1,3}$/.test(p))) {
+            return `${parts[0]}.${parts[1]}.x.x`;
+        }
+        return '***';
+    }
+    if (ip.includes(':')) {
+        const parts = ip.split(':');
+        if (parts.length >= 2) return `${parts[0]}:${parts[1]}:...`;
+        return '***';
+    }
+    return '***';
+}
