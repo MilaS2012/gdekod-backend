@@ -1,0 +1,105 @@
+name: Deploy Staging
+
+# Запускается при пуше в main. Выполняет pre-deploy проверки:
+# тесты + grep на mock-строки. Реальный деплой в Yandex Cloud
+# раскомментировать после получения доступа к аккаунту.
+#
+# Необходимые GitHub Secrets:
+#   YC_OAUTH_TOKEN        — OAuth токен сервисного аккаунта Yandex Cloud
+#   YC_FOLDER_ID          — ID folder'а в Yandex Cloud
+#   STAGING_HEALTH_TOKEN  — Bearer-токен для smoke-теста /health после деплоя
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Pre-deploy: тесты + проверка отсутствия mock в production-bundle
+  # ---------------------------------------------------------------------------
+  pre-deploy-checks:
+    name: Pre-deploy checks (tests + no-mock guard)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          cache-dependency-path: |
+            public-api/package-lock.json
+            private-api/package-lock.json
+
+      - name: Install — public-api
+        working-directory: public-api
+        run: npm ci
+
+      - name: Install — private-api
+        working-directory: private-api
+        run: npm ci
+
+      - name: Run all tests (must be green before any deploy)
+        run: npm test
+
+      # Проверяем что в коде нет захардкоженных mock-строк.
+      # Скрипт завершается с exit 1 если находит их при NODE_ENV=production.
+      - name: Check no mock strings in production code
+        env:
+          NODE_ENV: production
+        run: bash scripts/check-no-mock-in-prod.sh
+
+  # ---------------------------------------------------------------------------
+  # 2. Deploy — раскомментировать когда Yandex Cloud разморозят
+  # ---------------------------------------------------------------------------
+  # deploy:
+  #   name: Deploy to Yandex Cloud (staging)
+  #   needs: pre-deploy-checks
+  #   runs-on: ubuntu-latest
+  #   environment: staging
+  #
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup yc CLI
+  #       run: |
+  #         curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+  #         echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+  #
+  #     - name: Authenticate yc
+  #       env:
+  #         YC_OAUTH_TOKEN: ${{ secrets.YC_OAUTH_TOKEN }}
+  #       run: |
+  #         yc config set token "$YC_OAUTH_TOKEN"
+  #         yc config set folder-id "${{ secrets.YC_FOLDER_ID }}"
+  #
+  #     - name: Deploy private-api functions
+  #       env:
+  #         GIT_SHA: ${{ github.sha }}
+  #       run: |
+  #         cd private-api
+  #         # Деплоим каждую функцию отдельно (по одной Cloud Function на handler).
+  #         # Полный список команд — в README_DEPLOY.md.
+  #         yc serverless function version create \
+  #           --function-name gdekod-private-auth-start \
+  #           --runtime nodejs20 \
+  #           --entrypoint handlers/auth/start.handler \
+  #           --memory 128m \
+  #           --execution-timeout 10s \
+  #           --environment GIT_SHA="$GIT_SHA" \
+  #           --environment NODE_ENV=production \
+  #           --environment MOCK_OPERATOR_BILLING=false \
+  #           --service-account-id "${{ secrets.YC_SERVICE_ACCOUNT_ID }}" \
+  #           --source-path .
+  #         # TODO: добавить остальные функции аналогично
+  #
+  #     - name: Smoke test after deploy
+  #       env:
+  #         STAGING_URL: ${{ secrets.STAGING_API_URL }}
+  #         HEALTH_TOKEN: ${{ secrets.STAGING_HEALTH_TOKEN }}
+  #       run: bash scripts/smoke-test.sh "$STAGING_URL" "$HEALTH_TOKEN"

@@ -28,9 +28,11 @@ export async function handler(event, context) {
         const res = await getPool().query('SELECT 1 AS ok');
         const dbOk = res?.rows?.[0]?.ok === 1;
         return ok({
-            status: dbOk ? 'ok' : 'degraded',
-            db:     dbOk,
-            time:   new Date().toISOString(),
+            status:  dbOk ? 'ok' : 'degraded',
+            service: 'public',
+            version: process.env.GIT_SHA ?? 'dev',
+            db:      dbOk,
+            time:    new Date().toISOString(),
         });
     } catch (err) {
         console.error('[health]', { requestId, message: err?.message });

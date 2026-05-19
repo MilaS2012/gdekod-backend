@@ -94,9 +94,9 @@ cd parser && npm run start    # локальный прогон scheduler'а
 | **6.7** | **Приватный API: аккаунт и промокоды (profile + history + receipts + reveal/copy/confirm/complaint)** | `private-api/handlers/account/` + `private-api/handlers/coupons/` + миграции 010-011 | **✅ Завершён 18.05.2026 (420/420 тестов, coverage 93.13%)** |
 | **6.8** | **Приватный API: парсер-эндпоинты (coupons-list/urgent-queue/coupon-detail/result, X-Parser-Secret timing-safe)** | `private-api/handlers/admin/parser/` + миграция 012 | **✅ Завершён 18.05.2026 (473/473 тестов, coverage 93.26%)** |
 | **6.9** | **Приватный API: 152-ФЗ — экспорт данных и удаление аккаунта (export + delete flow + account-cleanup cron)** | `private-api/handlers/account/` + `private-api/lib/account-cleanup.js` + миграция 014 | **✅ Завершён 18.05.2026 (576/576 тестов, coverage 92.92%)** |
-| 6.10 | Приватный API: реальные интеграции (SMS.ru, Yandex Postbox, Lockbox, Cloud Functions cron) | `private-api/` | 📋 По плану |
+| **6.10** | **Приватный API: Финал и подготовка к деплою (cron-обёртки + CI/CD + smoke + .env.template + PRE_DEPLOY_CHECKLIST)** | `private-api/cron/` + `.github/workflows/` + `scripts/` + `docs/` | **✅ Завершён 19.05.2026 (609/609 тестов, coverage ~93%)** |
 | **6.11** | **Приватный API: Support tickets + Events log** | `private-api/handlers/support/` + `private-api/handlers/events/` + миграция 013 | **✅ Завершён 18.05.2026** |
-| 7 | Платежи (CloudPayments + операторский биллинг) | внутри этапа 6 | — |
+| 7 | Платежи (CloudPayments) — STUB_TODO_STAGE_7 заблокирован check-no-mock-in-prod.sh до реализации | `private-api/handlers/subscription/start.js` | 📋 Следующий |
 | **8** | **Парсер промокодов (Playwright + tiered scheduling)** | `parser/` | **✅ Завершён 10.05.2026** |
 | 9 | Деплой и подключение домена | `gdekod-frontend/deploy/` | ✅ Завершён 10.05.2026 (внутри 8) |
 | 10 | Мониторинг и алерты | — | после стабилизации деплоя |
@@ -227,21 +227,52 @@ pg-mem quirks: partial-index `idx_users_deletion_scheduled` (WHEREclause) лом
 
 Покрытие тестами: **92.92%** line / **95.74% funcs**, **597 тестов** (21 public + 576 private).
 
-## Этап 6 — функциональная часть закрыта
+## Этап 6.10 — итоги
 
-10 из 10 кодовых под-этапов (6.1–6.9 + 6.11) реализованы и покрыты тестами. Остаётся **6.10** — реальные интеграции (SMS.ru, Yandex Postbox, Lockbox, Cloud Functions cron-триггеры) — всё замоканное заменяется на production-соединения.
+Финал и подготовка к деплою (без живого Yandex Cloud — он в верификации):
+- **3 cron-обёртки** для Cloud Functions Timer: `cron/mock-daily-charges.js`, `cron/scheduled-deletions.js`, `cron/events-cleanup.js` — тонкие обёртки над lib-функциями, try/catch вокруг всего включая `getPool()`, `_deps.pool` для тестирования
+- **Health endpoints patched**: добавлены поля `service: 'private'|'public'` и `version: process.env.GIT_SHA ?? 'dev'` — отображает какая версия задеплоена
+- **CI/CD**: `.github/workflows/test.yml` (push/PR → тесты + coverage), `.github/workflows/deploy-staging.yml` (pre-deploy checks + закомментированный `yc` деплой с TODO)
+- **Двухуровневая защита** `scripts/check-no-mock-in-prod.sh`: HARD-FAIL на `STUB_TODO`, WARN на runtime-защищённые паттерны — **поймала `payment_url:'STUB_TODO_STAGE_7'` в `subscription/start.js`** → production deploy заблокирован до закрытия этапа 7 (CloudPayments). Именно как должно быть.
+- **Smoke-тест** `scripts/smoke-test.sh` — 8 HTTP-запросов после деплоя (merchants, coupons, auth/start, profile, health с Bearer)
+- **`.env.production.template`** — 17 ENV-переменных, собранных `grep` из кода, с командами `crypto.randomBytes` для генерации секретов
+- **`README_DEPLOY.md`** — 10-раздельная инструкция: секреты → Lockbox → миграции → Cloud Functions (таблица 21 функции с entrypoint и trigger-типом) → smoke → мониторинг → откат
+- **`docs/PRE_DEPLOY_CHECKLIST.md`** — 37 пунктов перед production: Yandex Cloud, БД, Lockbox, SMS.ru, Postbox, CloudPayments, CDN/SPA/DNS фронтенда, assertNoMockInProduction тест в изоляции
+
+**11 новых тестов** в 3 файлах: F1–F6 cron-handlers, G1–G3 private health, G4–G6 public health.
+
+Покрытие тестами: **~93%** line / **~95%** funcs, **609 тестов** (24 public + 585 private).
+
+## Этап 6 — приватный API закрыт
+
+Все 11 подэтапов (6.1–6.11) завершены и покрыты тестами. Backend готов к деплою при разморозке Yandex Cloud.
 
 **Итого `private-api/`:**
 
 | Показатель | Значение |
 |---|---|
-| Под-этапов | 10 / 10 (6.1–6.9, 6.11) |
-| Тестов | **576** private + **21** public = **597** |
-| Покрытие строк | **92.92%** |
-| Покрытие функций | **95.74%** |
-| Миграций | 014 файлов (001–014) |
+| Под-этапов | 11 / 11 (6.1–6.11) |
+| Тестов | **585** private + **24** public = **609** |
+| Покрытие строк | **~93%** |
+| Покрытие функций | **~95%** |
+| Миграций | 014 (001–014) |
+| Cloud Functions | 21 (HTTP + Timer) |
 | Handlers | 30+ (`/auth/*`, `/auth/email/*`, `/subscription/*`, `/account/*`, `/coupons/{id}/*`, `/admin/parser/*`, `/support/*`, `/events/*`) |
+| Cron | 3 (`scheduled-deletions` каждый час, `events-cleanup` ежедневно, `mock-daily-charges` staging) |
 | Middleware | `requireUser`, `requireParserSecret`, `corsHeaders` |
+| Lib-модули | billing-config, mock-cron, parser-config, notifications, sms-provider, email-provider, events-config, events-cleanup, events-rate-limit, support-config, account-deletion-config, account-cleanup, response, mask-pii, rate-limit |
+
+**Защитные механизмы:**
+- `assertNoMockInProduction()` — fail-fast при импорте + при вызове mock-cron
+- `check-no-mock-in-prod.sh` — CI-guard HARD-FAIL на `STUB_TODO` перед каждым деплоем
+- `crypto.timingSafeEqual` — сравнение секретов парсера
+- OTP confirm + 24h grace period — для удаления аккаунта
+- `UPDATE … RETURNING` атомарный claim — идемпотентный cron-cleanup
+- Маскирование PII во всех логах (`maskPhone`, `maskEmail`, `maskToken`, `maskIp`)
+
+**Ожидается:**
+- **Этап 7**: CloudPayments интеграция — `STUB_TODO_STAGE_7` заменить на реальный `payment_url`; операторский биллинг после договоров
+- **Деплой**: разморозка Yandex Cloud → 30 минут по `README_DEPLOY.md` → `docs/PRE_DEPLOY_CHECKLIST.md`
 | Lib-модули | billing-config, mock-cron, parser-config, notifications, sms-provider, events-config, events-cleanup, events-rate-limit, support-config, account-deletion-config, account-cleanup, response, mask-pii, rate-limit |
 
 ## Связь с другими репо
