@@ -29,6 +29,10 @@ const SUPPORTED_KINDS = new Set([
     'subscription_cancelled',
     'payment_failed',
     'new_device_login',
+    // 6.9 — soft-delete (ТЗ §19.3). Юзеру отправляем подтверждение, что
+    // запрос на удаление принят, доступ прекращён, и через 24ч аккаунт
+    // исчезнет окончательно. Текст шаблона — в 6.10 (реальные провайдеры).
+    'account_deletion_scheduled',
 ]);
 
 /**

@@ -95,6 +95,13 @@ export async function newPgMemPool() {
     db.public.none('DROP INDEX public_data.idx_coupons_tier_lastcheck');
     db.public.none('DROP INDEX public_data.idx_coupons_urgent');
 
+    // ★ idx_users_deletion_scheduled (миграция 014) — partial WHERE
+    //   deletion_scheduled_at IS NOT NULL AND deletion_completed_at IS NULL.
+    //   В pg-mem ломает SELECT'ы с этими же условиями (планировщик считает
+    //   что строка не подходит даже когда подходит). На реальном PG —
+    //   ускоряет cron-задачу processScheduledDeletions.
+    db.public.none('DROP INDEX private_data.idx_users_deletion_scheduled');
+
     const { Pool } = db.adapters.createPg();
     return new Pool();
 }
@@ -431,6 +438,84 @@ export async function createTestMagicLinkToken(pool, { user_id, token = null,
  *
  * Возвращает { id, code, code_hash, expires_at }.
  */
+/**
+ * Выставляет soft-delete поля для user'а напрямую (без вызова handler'ов
+ * /delete-confirm). Удобно для тестов /cancel-deletion, /account/export
+ * (ветка already_deleted) и cleanup'а.
+ *
+ * opts:
+ *   - scheduledAtOffsetSeconds: смещение deletion_scheduled_at от now()
+ *                               (положительное = в ПРОШЛОЕ, отрицательное =
+ *                               в БУДУЩЕЕ; null/undefined = NULL).
+ *   - requestedAtOffsetSeconds: то же для deletion_requested_at
+ *                               (default = тот же offset, что у scheduled).
+ *   - completed:                boolean (default false) — выставить
+ *                               deletion_completed_at = now()
+ */
+export async function setUserDeletion(pool, user_id, {
+    scheduledAtOffsetSeconds = 0,
+    requestedAtOffsetSeconds = null,
+    completed = false,
+} = {}) {
+    // ★ Передаём ISO-строки (а не JS Date) — pg-mem quirk #11:
+    //   INSERT через Date + WHERE-сравнение с $param ISO-строкой ломаются.
+    //   ISO-в-обе-стороны работает (handler'ы тоже передают .toISOString()).
+    const scheduled = scheduledAtOffsetSeconds == null
+        ? null
+        : new Date(Date.now() - scheduledAtOffsetSeconds * 1000).toISOString();
+    const requested = requestedAtOffsetSeconds == null
+        ? scheduled
+        : new Date(Date.now() - requestedAtOffsetSeconds * 1000).toISOString();
+    const completedAt = completed ? new Date().toISOString() : null;
+    await pool.query(
+        `UPDATE private_data.users
+            SET deletion_requested_at = $2,
+                deletion_scheduled_at = $3,
+                deletion_completed_at = $4
+          WHERE id = $1`,
+        [user_id, requested, scheduled, completedAt],
+    );
+}
+
+/**
+ * Создаёт запись в account_deletion_otp_codes для тестов /delete-confirm.
+ *
+ * opts:
+ *   - code:                 string (default '654321' — 6 цифр)
+ *   - expired:              boolean (default false)
+ *   - used:                 boolean (default false)
+ *   - attempts:             number (default 0)
+ *   - ip:                   string | null
+ *   - createdAtOffsetSeconds: сколько секунд НАЗАД (положительное)
+ *
+ * Перед вызовом — setTestAuthSecrets() (hashOtpCode читает OTP_HMAC_SECRET).
+ */
+export async function createDeletionOtp(pool, user_id, {
+    code = '654321',
+    expired = false,
+    used = false,
+    attempts = 0,
+    ip = null,
+    createdAtOffsetSeconds = 0,
+} = {}) {
+    const codeHash = hashOtpCode(code);
+    const expiresAt = expired
+        ? new Date(Date.now() - 60 * 1000)
+        : new Date(Date.now() + 5 * 60 * 1000);
+    const usedAt    = used ? new Date() : null;
+    const createdAt = new Date(Date.now() - createdAtOffsetSeconds * 1000);
+
+    const { rows } = await pool.query(
+        `INSERT INTO private_data.account_deletion_otp_codes
+           (user_id, code_hash, expires_at, used_at, attempts_count, ip_address, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, code_hash, expires_at, created_at`,
+        [user_id, codeHash, expiresAt, usedAt, attempts, ip, createdAt],
+    );
+    return { id: rows[0].id, code, code_hash: rows[0].code_hash,
+             expires_at: rows[0].expires_at, created_at: rows[0].created_at };
+}
+
 /**
  * Создаёт support_ticket для тестов /api/support/tickets.
  *

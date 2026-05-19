@@ -38,6 +38,16 @@ export const EVENT_TYPES = Object.freeze([
     // Общие
     'page_viewed',
     'error_occurred',
+
+    // 152-ФЗ audit trail (6.9). Эти события пишутся не клиентом через
+    // /api/events, а напрямую серверными handler'ами (export, deletion-*,
+    // cleanup). Включены в whitelist чтобы пройти валидацию /api/events
+    // на случай, если клиент когда-нибудь захочет логировать их явно;
+    // и чтобы события не падали при попытке клиента сделать это.
+    'data_exported',
+    'deletion_scheduled',
+    'deletion_completed',
+    'deletion_cancelled',
 ]);
 
 export const EVENTS_RETENTION_DAYS = 180;
