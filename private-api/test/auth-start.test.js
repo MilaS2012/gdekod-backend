@@ -218,8 +218,10 @@ test('E12: phone в БД, email_verified_at NOT NULL → channel=magic_link, ema
     const { result: r, logs } = await captureLogs(() =>
         handler(makeEvent({ phone: '+79261111111' }), {}, { pool }));
     assert.equal(r.statusCode, 200);
-    assert.equal(parseBody(r).channel, 'magic_link');
-    assert.equal(parseBody(r).hint,    'check_your_email');
+    assert.equal(parseBody(r).channel,      'magic_link');
+    assert.equal(parseBody(r).hint,         'check_your_email');
+    assert.ok(parseBody(r).email_masked,    'email_masked должен присутствовать в ответе');
+    assert.match(parseBody(r).email_masked, /\*\*\*/, 'email_masked должен содержать ***');
 
     // email-mock пишет про маскированный адрес
     assert.match(logs, /\[email mock\]/);
@@ -426,8 +428,10 @@ test('C-new: выбор канала для трёх состояний user (sm
     const { markUserEmailVerified } = await import('./helpers.js');
     await markUserEmailVerified(poolVerified, vId, 'verified@example.com');
     const rVerified = await captureLogs(() => handler(makeEvent({ phone: '+79263333333' }), {}, { pool: poolVerified }));
-    assert.equal(parseBody(rVerified.result).channel, 'magic_link');
-    assert.equal(parseBody(rVerified.result).hint,    'check_your_email');
+    assert.equal(parseBody(rVerified.result).channel,      'magic_link');
+    assert.equal(parseBody(rVerified.result).hint,         'check_your_email');
+    assert.ok(parseBody(rVerified.result).email_masked,    'email_masked отсутствует');
+    assert.match(parseBody(rVerified.result).email_masked, /\*\*\*/, 'email_masked не замаскирован');
     const otpVerified = await poolVerified.query(`SELECT count(*)::int AS c FROM private_data.otp_codes`);
     assert.equal(otpVerified.rows[0].c, 0, 'для magic_link ветки OTP не создаётся');
     const mlVerified = await poolVerified.query(`SELECT count(*)::int AS c FROM private_data.magic_link_tokens`);

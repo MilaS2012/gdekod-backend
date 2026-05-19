@@ -23,7 +23,7 @@ import { generateOtpCode, hashOtpCode, OTP_LENGTH } from '../../lib/otp.js';
 import { generateRandomToken } from '../../lib/tokens.js';
 import { sendOtpSms } from '../../lib/sms-provider.js';
 import { sendMagicLink } from '../../lib/email-provider.js';
-import { maskPhone, maskIp } from '../../lib/mask-pii.js';
+import { maskPhone, maskIp, maskEmail } from '../../lib/mask-pii.js';
 import { extractIp } from '../../lib/event.js';
 
 const PHONE_RE = /^\+\d{10,15}$/;
@@ -156,7 +156,10 @@ export async function handler(event, context, deps = {}) {
             user_existed:  userExisted,
         });
 
-        return ok({ channel, hint }, { origin });
+        const extra = channel === 'magic_link'
+            ? { email_masked: maskEmail(user.email) }
+            : {};
+        return ok({ channel, hint, ...extra }, { origin });
     } catch (err) {
         console.error('[auth.start]', { request_id: requestId, message: err?.message });
         return serverError({ origin, requestId });
