@@ -13,8 +13,10 @@
 //     - Mock-cron каждые сутки имитирует продление (lib/mock-cron.js).
 //
 //   cloudpayments_card / cloudpayments_sbp:
-//     - status='pending', возвращаем payment_url (STUB до этапа 7).
-//     - Webhook от CloudPayments переведёт status='active'.
+//     - status='pending', возвращаем widget_config для CloudPayments Widget API.
+//     - Фронт инициализирует виджет с publicId/amount/accountId/invoiceId.
+//     - Webhook от CloudPayments (POST /api/webhook/cloudpayments/pay)
+//       переведёт status='active' и создаст receipt.
 //
 //   operator_megafon / operator_t2 / operator_beeline:
 //     - status='pending', ждём SMS-consent оператора (этап 10).
@@ -37,6 +39,7 @@ import {
     TARIFFS, isProviderAllowedForTariff, assertNoMockInProduction,
 } from '../../lib/billing-config.js';
 import { notifyTransactional } from '../../lib/notifications.js';
+import { kopecksToRubles } from '../../lib/cloudpayments.js';
 
 export async function handler(event, context, deps = {}) {
     const origin    = getOrigin(event);
@@ -136,7 +139,17 @@ export async function handler(event, context, deps = {}) {
         }
 
         if (provider === 'cloudpayments_card' || provider === 'cloudpayments_sbp') {
-            // Этап 7 даст реальный payment_url. Сейчас INSERT pending + STUB.
+            // CloudPayments Widget API: фронту нужны параметры инициализации.
+            // publicId — ОБЯЗАТЕЛЕН из env. Без него виджет не откроется,
+            // поэтому fail-loud в production вместо silent 'undefined' в ответе.
+            const publicId = process.env.CLOUDPAYMENTS_PUBLIC_ID;
+            if (!publicId) {
+                console.error('[subscription.start] CLOUDPAYMENTS_PUBLIC_ID не задан в env', {
+                    request_id: requestId, user_id: userId, tariff, provider,
+                });
+                return serverError({ origin, requestId });
+            }
+
             const sub = (await pool.query(
                 `INSERT INTO private_data.subscriptions
                    (user_id, tariff, provider, status, amount_kopecks)
@@ -153,8 +166,16 @@ export async function handler(event, context, deps = {}) {
             return ok({
                 subscription_id: sub.id,
                 status:          'pending',
-                next_step:       'redirect_to_cloudpayments',
-                payment_url:     'STUB_TODO_STAGE_7',
+                next_step:       'open_cloudpayments_widget',
+                widget_config: {
+                    publicId,
+                    amount:      kopecksToRubles(amountKopecks),
+                    currency:    'RUB',
+                    description: `Подписка ГдеКод — ${TARIFFS[tariff].display_name}`,
+                    accountId:   userId,
+                    invoiceId:   sub.id,
+                    skin:        'modern',
+                },
             }, { origin });
         }
 

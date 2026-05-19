@@ -12,7 +12,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 import { newDb, DataType } from 'pg-mem';
 
 import { signJwt } from '../lib/jwt.js';
@@ -101,6 +101,14 @@ export async function newPgMemPool() {
     //   что строка не подходит даже когда подходит). На реальном PG —
     //   ускоряет cron-задачу processScheduledDeletions.
     db.public.none('DROP INDEX private_data.idx_users_deletion_scheduled');
+
+    // ★ idx_receipts_failed и idx_receipts_payment_id (миграция 015) —
+    //   оба partial WHERE. На реальном PG: первый ускоряет lookup failed
+    //   receipts саппортом, второй защищает от race при ретраях webhook'а
+    //   CloudPayments. В pg-mem partial-WHERE ломает планировщик SELECT'ов
+    //   по receipts.
+    db.public.none('DROP INDEX private_data.idx_receipts_failed');
+    db.public.none('DROP INDEX private_data.idx_receipts_payment_id');
 
     const { Pool } = db.adapters.createPg();
     return new Pool();
@@ -229,6 +237,27 @@ export function setTestAuthSecrets() {
 export function resetTestAuthSecrets() {
     resetTestJwtSecret();
     delete process.env.OTP_HMAC_SECRET;
+}
+
+// ─── CloudPayments (этап 7) ────────────────────────────────────────────────
+export const TEST_CP_WEBHOOK_SECRET = 'test_cp_webhook_secret_min32_bytes_xyz';
+export const TEST_CP_PUBLIC_ID      = 'test_pk_abcdef123';
+
+/** Выставляет секреты для CloudPayments webhook handler'ов. */
+export function setTestCpSecrets() {
+    process.env.CLOUDPAYMENTS_WEBHOOK_SECRET = TEST_CP_WEBHOOK_SECRET;
+    process.env.CLOUDPAYMENTS_PUBLIC_ID      = TEST_CP_PUBLIC_ID;
+}
+export function resetTestCpSecrets() {
+    delete process.env.CLOUDPAYMENTS_WEBHOOK_SECRET;
+    delete process.env.CLOUDPAYMENTS_PUBLIC_ID;
+}
+
+/** Подписывает raw body тем же алгоритмом что CloudPayments:
+ *  HMAC-SHA256 + base64. Используется в тестах webhook-handler'ов для
+ *  генерации валидного значения заголовка Content-HMAC. */
+export function signCpWebhook(rawBody, secret = TEST_CP_WEBHOOK_SECRET) {
+    return createHmac('sha256', secret).update(rawBody).digest('base64');
 }
 
 /** Помечает email пользователя как verified (для тестов magic-link ветки). */

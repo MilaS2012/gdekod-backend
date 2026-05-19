@@ -144,8 +144,11 @@ test('20: после старта next_charge_at = activated_at + 1 день д�
 // Группа E — /subscription/start cloudpayments
 // =============================================================================
 
-test('21: tariff=monthly_499 + cloudpayments_card → pending + STUB url', async () => {
+// Тесты 21-23 обновлены под этап 7: STUB_TODO_STAGE_7 заменён на widget_config.
+// Детальная проверка widget_config — в subscription-start-cp.test.js (группа E).
+test('21: tariff=monthly_499 + cloudpayments_card → pending + widget_config', async () => {
     setTestAuthSecrets();
+    process.env.CLOUDPAYMENTS_PUBLIC_ID = 'test_pk_xyz';
     const pool = await newPgMemPool();
     const { jwt } = await authedSetup(pool);
 
@@ -156,23 +159,31 @@ test('21: tariff=monthly_499 + cloudpayments_card → pending + STUB url', async
     const body = parseBody(r);
     assert.ok(body.subscription_id);
     assert.equal(body.status, 'pending');
-    assert.equal(body.next_step, 'redirect_to_cloudpayments');
+    assert.equal(body.next_step, 'open_cloudpayments_widget');
+    assert.ok(body.widget_config, 'widget_config должен быть в ответе');
+
+    delete process.env.CLOUDPAYMENTS_PUBLIC_ID;
     resetTestAuthSecrets();
 });
 
-test('22: payment_url возвращается как STUB', async () => {
+test('22: widget_config содержит invoiceId = subscription_id', async () => {
     setTestAuthSecrets();
+    process.env.CLOUDPAYMENTS_PUBLIC_ID = 'test_pk_xyz';
     const pool = await newPgMemPool();
     const { jwt } = await authedSetup(pool);
     const r = await handler(
         makeEvent({ body: { tariff: 'monthly_499', provider: 'cloudpayments_card' }, jwt }),
         {}, { pool });
-    assert.equal(parseBody(r).payment_url, 'STUB_TODO_STAGE_7');
+    const body = parseBody(r);
+    assert.equal(body.widget_config.invoiceId, body.subscription_id);
+
+    delete process.env.CLOUDPAYMENTS_PUBLIC_ID;
     resetTestAuthSecrets();
 });
 
 test('23: cloudpayments → в БД status="pending"', async () => {
     setTestAuthSecrets();
+    process.env.CLOUDPAYMENTS_PUBLIC_ID = 'test_pk_xyz';
     const pool = await newPgMemPool();
     const { user_id, jwt } = await authedSetup(pool);
     const r = await handler(
@@ -185,6 +196,8 @@ test('23: cloudpayments → в БД status="pending"', async () => {
     assert.equal(rows.length, 1, 'должна быть ровно одна subscription');
     assert.equal(rows[0].status, 'pending');
     assert.equal(rows[0].provider, 'cloudpayments_sbp');
+
+    delete process.env.CLOUDPAYMENTS_PUBLIC_ID;
     resetTestAuthSecrets();
 });
 

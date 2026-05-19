@@ -13,7 +13,9 @@
 //   3. Логирует факт уведомления с маскированным получателем
 //
 // kind — символический идентификатор шаблона (см. §3.6.2 v16.1):
-//   - 'subscription_activated'  → Шаблон 2 «подписка 35₽/сутки активна»
+//   - 'subscription_activated'  → Шаблон 2 «подписка активна»
+//   - 'subscription_renewed'    → Шаблон 2b «подписка продлена на 30 дней»
+//                                 (этап 7 — webhook recurrent от CloudPayments)
 //   - 'subscription_cancelled'  → Шаблон 4 «подписка отменена, доступ до DD.MM»
 //   - 'payment_failed'          → Шаблон 3 «не удалось списать»
 //   - 'new_device_login'        → Шаблон 5 «вход с нового устройства»
@@ -26,6 +28,7 @@ import { maskPhone, maskEmail } from './mask-pii.js';
 
 const SUPPORTED_KINDS = new Set([
     'subscription_activated',
+    'subscription_renewed',
     'subscription_cancelled',
     'payment_failed',
     'new_device_login',
