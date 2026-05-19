@@ -325,9 +325,17 @@ export async function createTestMerchant(pool, opts = {}) {
         category = 'other',
         logo_url = null,
     } = opts;
+    // ON CONFLICT (domain) DO UPDATE — миграция 016 засеяла топ-20 магазинов;
+    // если тест запрашивает уже существующий домен (напр. wildberries.ru),
+    // обновляем поля и возвращаем строку вместо ошибки дубля.
     const { rows } = await pool.query(
         `INSERT INTO public_data.merchants (name, domain, category, logo_url, is_active)
          VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (domain) DO UPDATE
+             SET name     = EXCLUDED.name,
+                 category = EXCLUDED.category,
+                 logo_url = EXCLUDED.logo_url,
+                 is_active = true
          RETURNING id, name, domain, category, logo_url`,
         [name, domain, category, logo_url],
     );
